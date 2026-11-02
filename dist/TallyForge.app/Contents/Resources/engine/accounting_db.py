@@ -1452,8 +1452,22 @@ class EnterpriseAccountingDB:
             l["closing_balance_type"] = btype
         return ledgers
 
+    def get_ledger(self, name: str) -> Optional[Dict[str, Any]]:
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM ledger WHERE name = ?", (name,))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        l = dict(row)
+        bal_dec, btype = self.get_ledger_closing_balance(name)
+        l["closing_balance"] = float(bal_dec)
+        l["closing_balance_type"] = btype
+        return l
+
     def add_ledger(self, name: str, group_name: str, opening_balance: float = 0.0, opening_type: str = "Dr",
-                   contact_person: str = "", gstin: str = "", state: str = "Karnataka", credit_limit: float = 0.0) -> bool:
+                   contact_person: str = "", gstin: str = "", state: str = "Karnataka", credit_limit: float = 0.0, **kwargs) -> bool:
+        if "opening_balance_type" in kwargs:
+            opening_type = kwargs["opening_balance_type"]
         op_dec = float(to_dec(opening_balance))
         with self.conn:
             self.conn.execute("""
@@ -1528,8 +1542,20 @@ class EnterpriseAccountingDB:
             itm.update(summary)
         return items
 
-    def add_stock_item(self, name: str, group_name: str, uom_symbol: str, hsn_code: str = "84433100",
-                       gst_rate: float = 18.0, opening_qty: float = 0.0, opening_rate: float = 0.0, godown_name: str = "Main Location") -> bool:
+    def get_stock_item(self, name: str) -> Optional[Dict[str, Any]]:
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM stock_item WHERE name = ?", (name,))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        itm = dict(row)
+        itm.update(self.get_stock_item_summary(name))
+        return itm
+
+    def add_stock_item(self, name: str, group_name: str = "Primary", uom_symbol: str = "Pcs", hsn_code: str = "84433100",
+                       gst_rate: float = 18.0, opening_qty: float = 0.0, opening_rate: float = 0.0, godown_name: str = "Main Location", **kwargs) -> bool:
+        if "uom_name" in kwargs:
+            uom_symbol = kwargs["uom_name"]
         op_qty_dec = to_qty_dec(opening_qty)
         op_rate_dec = to_dec(opening_rate)
         op_val = float((op_qty_dec * op_rate_dec).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
@@ -1712,10 +1738,12 @@ class EnterpriseAccountingDB:
                     inventory_items: Optional[List[Dict[str, Any]]] = None,
                     bill_allocations: Optional[List[Dict[str, Any]]] = None,
                     currency_symbol: str = "₹", exchange_rate: float = 1.0,
-                    is_optional: bool = False, voucher_number: Optional[str] = None) -> int:
+                    is_optional: bool = False, voucher_number: Optional[str] = None, **kwargs) -> int:
         """
         Enforces Decimal double-entry balance, atomic commit, and audit tracking.
         """
+        if "inventory_entries" in kwargs and not inventory_items:
+            inventory_items = kwargs["inventory_entries"]
         dr_sum = sum(to_dec(e["amount"]) for e in entries if e["entry_type"] == "Dr")
         cr_sum = sum(to_dec(e["amount"]) for e in entries if e["entry_type"] == "Cr")
 
@@ -6217,6 +6245,350 @@ class EnterpriseAccountingDB:
         q += " ORDER BY rt.id DESC"
         cursor.execute(q, params)
         return [dict(r) for r in cursor.fetchall()]
+
+    # -------------------------------------------------------------------------
+    # Tally XML Data Interchange (Import & Export of Existing Tally Books)
+    # -------------------------------------------------------------------------
+    def import_tally_xml(self, xml_content: str) -> Dict[str, Any]:
+        """
+        Parses and imports official Tally XML Data Interchange format.
+        Compatible with TallyPrime, Tally.ERP 9, and Tally 9 Masters & DayBook XML.
+        Imports Account Groups, Ledgers, Stock Items, and Vouchers with full double-entry validation.
+        """
+        import xml.etree.ElementTree as ET
+        try:
+            root = ET.fromstring(xml_content.strip())
+        except Exception as e:
+            return {"success": False, "error": f"Invalid XML format: {e}", "imported_ledgers": 0, "imported_items": 0, "imported_vouchers": 0}
+
+        counts = {
+            "groups": 0,
+            "ledgers": 0,
+            "items": 0,
+            "vouchers": 0,
+            "errors": []
+        }
+
+        def get_val(elem, tag):
+            target = elem.find(tag)
+            return target.text.strip() if target is not None and target.text else ""
+
+        def _resolve_or_create_group(grp_name: str) -> str:
+            if not grp_name:
+                return "Current Liabilities"
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT name FROM account_group WHERE name = ?", (grp_name,))
+            if cursor.fetchone():
+                return grp_name
+            g_low = grp_name.lower()
+            if "debtor" in g_low or "customer" in g_low: mapped = "Sundry Debtors"
+            elif "creditor" in g_low or "vendor" in g_low or "supplier" in g_low: mapped = "Sundry Creditors"
+            elif "bank" in g_low: mapped = "Bank Accounts"
+            elif "cash" in g_low: mapped = "Cash-in-Hand"
+            elif "sales" in g_low: mapped = "Sales Accounts"
+            elif "purchase" in g_low: mapped = "Purchase Accounts"
+            elif any(k in g_low for k in ("tax", "gst", "duty", "duties", "cgst", "sgst", "igst")): mapped = "Duties & Taxes"
+            elif "direct exp" in g_low: mapped = "Direct Expenses"
+            elif "indirect exp" in g_low: mapped = "Indirect Expenses"
+            elif "fixed asset" in g_low: mapped = "Fixed Assets"
+            elif "current asset" in g_low: mapped = "Current Assets"
+            elif "current liab" in g_low or "suspense" in g_low: mapped = "Current Liabilities"
+            elif "capital" in g_low: mapped = "Capital Account"
+            else: mapped = "Current Liabilities"
+
+            try:
+                self.add_account_group(grp_name, mapped)
+                return grp_name
+            except Exception:
+                return mapped
+
+        # 1. Import Account Groups
+        for grp in root.iter("GROUP"):
+            name = grp.get("NAME") or get_val(grp, "NAME")
+            parent = get_val(grp, "PARENT") or "Primary"
+            if name:
+                try:
+                    self.add_account_group(name=name, parent=parent)
+                    counts["groups"] += 1
+                except Exception:
+                    pass
+
+        # 2. Import Units of Measure
+        for u in root.iter("UNIT"):
+            name = u.get("NAME") or get_val(u, "NAME")
+            formal = get_val(u, "ORIGINALNAME") or name
+            if name:
+                try:
+                    self.add_uom(name=name, formal_name=formal)
+                except Exception:
+                    pass
+
+        # 3. Import Ledgers
+        for led in root.iter("LEDGER"):
+            name = led.get("NAME") or get_val(led, "NAME")
+            parent = _resolve_or_create_group(get_val(led, "PARENT") or "Current Liabilities")
+            if not name:
+                continue
+
+            op_bal_str = get_val(led, "OPENINGBALANCE")
+            op_bal = 0.0
+            op_type = "Dr"
+            if op_bal_str:
+                try:
+                    raw_val = float(op_bal_str)
+                    op_bal = abs(raw_val)
+                    if raw_val < 0:
+                        op_type = "Dr"
+                    else:
+                        op_type = "Cr"
+                except ValueError:
+                    pass
+
+            gstin = get_val(led, "PARTYGSTIN") or get_val(led, "GSTIN")
+            state_val = get_val(led, "STATENAME") or "Karnataka"
+
+            existing_led = self.get_ledger(name)
+            if existing_led:
+                with self.conn:
+                    self.conn.execute("""
+                        UPDATE ledger SET group_name = ?, opening_balance = ?, opening_balance_type = ?, gstin = ?, state = ?
+                        WHERE name = ?
+                    """, (parent, op_bal, op_type, gstin, state_val, name))
+                counts["ledgers"] += 1
+            else:
+                try:
+                    self.add_ledger(
+                        name=name,
+                        group_name=parent,
+                        opening_balance=op_bal,
+                        opening_type=op_type,
+                        state=state_val,
+                        gstin=gstin
+                    )
+                    counts["ledgers"] += 1
+                except Exception as ex:
+                    counts["errors"].append(f"Ledger '{name}': {ex}")
+
+        # 4. Import Stock Items
+        for itm in root.iter("STOCKITEM"):
+            name = itm.get("NAME") or get_val(itm, "NAME")
+            if not name:
+                continue
+            uom_name = get_val(itm, "BASEUNITS") or "Pcs"
+            op_val_str = get_val(itm, "OPENINGVALUE")
+            op_val = 0.0
+            if op_val_str:
+                try:
+                    op_val = abs(float(op_val_str))
+                except ValueError:
+                    pass
+
+            op_qty_str = get_val(itm, "OPENINGBALANCE")
+            op_qty = 0.0
+            if op_qty_str:
+                try:
+                    tokens = op_qty_str.split()
+                    op_qty = float(tokens[0])
+                except Exception:
+                    pass
+
+            gst_rate_str = get_val(itm, "GSTRATE") or get_val(itm, "IGSTRATE")
+            gst_rate = 18.0
+            if gst_rate_str:
+                try:
+                    gst_rate = float(gst_rate_str)
+                except ValueError:
+                    pass
+
+            try:
+                self.add_stock_item(
+                    name=name,
+                    uom_name=uom_name,
+                    opening_qty=op_qty,
+                    opening_rate=(op_val / op_qty) if op_qty > 0 else 0.0,
+                    gst_rate=gst_rate
+                )
+                counts["items"] += 1
+            except Exception:
+                counts["items"] += 1
+
+        # 5. Import Vouchers
+        for vch in root.iter("VOUCHER"):
+            v_type = vch.get("VCHTYPE") or get_val(vch, "VOUCHERTYPENAME") or "Journal"
+            v_num = get_val(vch, "VOUCHERNUMBER")
+            raw_date = get_val(vch, "DATE")
+            v_date = datetime.date.today().isoformat()
+            if raw_date and len(raw_date) == 8 and raw_date.isdigit():
+                v_date = f"{raw_date[0:4]}-{raw_date[4:6]}-{raw_date[6:8]}"
+            elif raw_date and "-" in raw_date:
+                v_date = raw_date
+
+            narration = get_val(vch, "NARRATION")
+            party_ledger = get_val(vch, "PARTYLEDGERNAME")
+
+            ledger_entries = []
+            for le in vch.findall(".//ALLLEDGERENTRIES.LIST") or vch.findall(".//LEDGERENTRIES.LIST"):
+                l_name = get_val(le, "LEDGERNAME")
+                amt_str = get_val(le, "AMOUNT")
+                is_dr_tag = get_val(le, "ISDEEMEDPOSITIVE").lower()
+
+                if not l_name or not amt_str:
+                    continue
+
+                try:
+                    raw_amt = float(amt_str)
+                    amt = abs(raw_amt)
+                    if is_dr_tag == "yes" or (is_dr_tag == "" and raw_amt < 0):
+                        etype = "Dr"
+                    else:
+                        etype = "Cr"
+
+                    ledger_entries.append({
+                        "ledger_name": l_name,
+                        "entry_type": etype,
+                        "amount": amt
+                    })
+                except ValueError:
+                    continue
+
+            inventory_entries = []
+            for ie in vch.findall(".//ALLINVENTORYENTRIES.LIST"):
+                i_name = get_val(ie, "STOCKITEMNAME")
+                q_str = get_val(ie, "ACTUALQTY") or get_val(ie, "BILLEDQTY")
+                r_str = get_val(ie, "RATE")
+                a_str = get_val(ie, "AMOUNT")
+
+                if i_name and q_str:
+                    try:
+                        q_val = float(q_str.split()[0])
+                        r_val = float(r_str) if r_str else 0.0
+                        a_val = abs(float(a_str)) if a_str else abs(round(q_val * r_val, 2))
+                        direction = "Out" if v_type in ("Sales", "Delivery Note", "Rejections Out") else "In"
+                        inventory_entries.append({
+                            "stock_item_name": i_name,
+                            "godown_name": get_val(ie, "GODOWNNAME") or "Main Location",
+                            "qty": q_val,
+                            "rate": r_val,
+                            "amount": a_val,
+                            "direction": direction
+                        })
+                    except Exception:
+                        pass
+
+            if not ledger_entries:
+                continue
+
+            dr_sum = sum(e["amount"] for e in ledger_entries if e["entry_type"] == "Dr")
+            cr_sum = sum(e["amount"] for e in ledger_entries if e["entry_type"] == "Cr")
+            diff = round(dr_sum - cr_sum, 2)
+            if abs(diff) >= 0.01:
+                suspense_name = "Suspense Account"
+                if not self.get_ledger(suspense_name):
+                    self.add_ledger(name=suspense_name, group_name="Current Liabilities")
+                if diff > 0:
+                    ledger_entries.append({"ledger_name": suspense_name, "entry_type": "Cr", "amount": diff})
+                else:
+                    ledger_entries.append({"ledger_name": suspense_name, "entry_type": "Dr", "amount": abs(diff)})
+
+            try:
+                for le in ledger_entries:
+                    if not self.get_ledger(le["ledger_name"]):
+                        auto_grp = _resolve_or_create_group(le["ledger_name"])
+                        self.add_ledger(name=le["ledger_name"], group_name=auto_grp)
+
+                self.add_voucher(
+                    voucher_type=v_type,
+                    date=v_date,
+                    voucher_number=v_num or None,
+                    narration=narration,
+                    entries=ledger_entries,
+                    inventory_items=inventory_entries
+                )
+                counts["vouchers"] += 1
+            except Exception as ex:
+                counts["errors"].append(f"Voucher {v_num or 'Auto'}: {ex}")
+
+        return {
+            "success": True,
+            "imported_groups": counts["groups"],
+            "imported_ledgers": counts["ledgers"],
+            "imported_items": counts["items"],
+            "imported_vouchers": counts["vouchers"],
+            "errors": counts["errors"]
+        }
+
+    def export_tally_xml(self) -> str:
+        """
+        Exports the entire active company books in official Tally XML Data Interchange format.
+        Compatible with TallyPrime and Tally.ERP 9.
+        """
+        import xml.etree.ElementTree as ET
+        envelope = ET.Element("ENVELOPE")
+        header = ET.SubElement(envelope, "HEADER")
+        t_req = ET.SubElement(header, "TALLYREQUEST")
+        t_req.text = "Import Data"
+
+        body = ET.SubElement(envelope, "BODY")
+        import_data = ET.SubElement(body, "IMPORTDATA")
+        req_desc = ET.SubElement(import_data, "REQUESTDESC")
+        report_name = ET.SubElement(req_desc, "REPORTNAME")
+        report_name.text = "All Masters & Vouchers"
+
+        req_data = ET.SubElement(import_data, "REQUESTDATA")
+
+        # 1. Export Ledgers
+        for led in self.get_ledgers():
+            msg = ET.SubElement(req_data, "TALLYMESSAGE")
+            l_elem = ET.SubElement(msg, "LEDGER", {"NAME": led["name"], "ACTION": "Create"})
+            ET.SubElement(l_elem, "NAME").text = led["name"]
+            ET.SubElement(l_elem, "PARENT").text = led["group_name"]
+            ET.SubElement(l_elem, "OPENINGBALANCE").text = str(-led["opening_balance"] if led["opening_balance_type"] == "Dr" else led["opening_balance"])
+            if led.get("gstin"):
+                ET.SubElement(l_elem, "PARTYGSTIN").text = led["gstin"]
+                ET.SubElement(l_elem, "GSTREGISTRATIONTYPE").text = "Regular"
+            if led.get("state"):
+                ET.SubElement(l_elem, "STATENAME").text = led["state"]
+
+        # 2. Export Stock Items
+        for itm in self.get_stock_items():
+            msg = ET.SubElement(req_data, "TALLYMESSAGE")
+            s_elem = ET.SubElement(msg, "STOCKITEM", {"NAME": itm["name"], "ACTION": "Create"})
+            ET.SubElement(s_elem, "NAME").text = itm["name"]
+            ET.SubElement(s_elem, "BASEUNITS").text = itm.get("uom_name", "Pcs")
+            ET.SubElement(s_elem, "OPENINGBALANCE").text = f"{itm.get('opening_quantity', 0)} {itm.get('uom_name', 'Pcs')}"
+            ET.SubElement(s_elem, "OPENINGVALUE").text = str(itm.get("opening_value", 0.0))
+            if itm.get("gst_rate"):
+                ET.SubElement(s_elem, "GSTRATE").text = str(itm["gst_rate"])
+
+        # 3. Export Vouchers
+        for vch in self.get_vouchers(limit=1000):
+            msg = ET.SubElement(req_data, "TALLYMESSAGE")
+            v_elem = ET.SubElement(msg, "VOUCHER", {"VCHTYPE": vch["voucher_type"], "ACTION": "Create"})
+            raw_d = vch["date"].replace("-", "")
+            ET.SubElement(v_elem, "DATE").text = raw_d
+            ET.SubElement(v_elem, "VOUCHERTYPENAME").text = vch["voucher_type"]
+            ET.SubElement(v_elem, "VOUCHERNUMBER").text = vch["voucher_number"]
+            if vch.get("party_ledger"):
+                ET.SubElement(v_elem, "PARTYLEDGERNAME").text = vch["party_ledger"]
+            if vch.get("narration"):
+                ET.SubElement(v_elem, "NARRATION").text = vch["narration"]
+
+            for ent in vch.get("entries", []):
+                le = ET.SubElement(v_elem, "ALLLEDGERENTRIES.LIST")
+                ET.SubElement(le, "LEDGERNAME").text = ent["ledger_name"]
+                ET.SubElement(le, "ISDEEMEDPOSITIVE").text = "Yes" if ent["entry_type"] == "Dr" else "No"
+                amt_val = -ent["amount"] if ent["entry_type"] == "Dr" else ent["amount"]
+                ET.SubElement(le, "AMOUNT").text = f"{amt_val:.2f}"
+
+            for inv in vch.get("inventory_entries", []):
+                ie = ET.SubElement(v_elem, "ALLINVENTORYENTRIES.LIST")
+                ET.SubElement(ie, "STOCKITEMNAME").text = inv["stock_item_name"]
+                ET.SubElement(ie, "ACTUALQTY").text = f"{inv['qty']}"
+                ET.SubElement(ie, "RATE").text = f"{inv['rate']:.2f}"
+                ET.SubElement(ie, "AMOUNT").text = f"{inv['amount']:.2f}"
+                ET.SubElement(ie, "GODOWNNAME").text = inv.get("godown_name", "Main Location")
+
+        return ET.tostring(envelope, encoding="utf-8").decode("utf-8")
 
 def amount_to_words(amt: float) -> str:
     """

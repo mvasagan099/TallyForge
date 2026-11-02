@@ -3209,6 +3209,52 @@ async function submitImportTDL() {
     }
 }
 
+function handleTallyXMLFileUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const txt = e.target.result;
+        document.getElementById("import-tally-xml-text").value = txt;
+    };
+    reader.readAsText(file);
+}
+
+async function submitImportTallyXML() {
+    const xmlContent = document.getElementById("import-tally-xml-text").value.trim();
+    if (!xmlContent) {
+        alert("Please paste Tally XML content or choose a Tally XML export file.");
+        return;
+    }
+
+    try {
+        const res = await fetch("/api/tally/xml/import", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ xml_data: xmlContent })
+        });
+        const out = await res.json();
+        if (res.ok && out.success) {
+            alert(`Tally XML Imported Successfully!\n\n` +
+                  `✓ Account Groups: ${out.imported_groups}\n` +
+                  `✓ Ledgers: ${out.imported_ledgers}\n` +
+                  `✓ Stock Items: ${out.imported_items}\n` +
+                  `✓ Vouchers: ${out.imported_vouchers}\n` +
+                  (out.errors && out.errors.length ? `\nWarnings: ${out.errors.length}` : ''));
+            closeImportModal();
+            loadAppState();
+        } else {
+            alert(`Import failed: ${out.error || JSON.stringify(out)}`);
+        }
+    } catch (e) {
+        alert(`Failed to import Tally XML: ${e.message}`);
+    }
+}
+
+function downloadTallyXML() {
+    window.open("/api/tally/xml/export", "_blank");
+}
+
 // -------------------------------------------------------------------------
 // PHASE 4: Features Configuration Modal (F11)
 // -------------------------------------------------------------------------

@@ -24,6 +24,8 @@ test.db
 # Dynamic local backups (keep directory via .gitkeep)
 backups/*
 !backups/.gitkeep
+tests/backups/*
+!tests/backups/.gitkeep
 
 # Large precompiled binaries
 setup.exe

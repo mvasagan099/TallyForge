@@ -526,5 +526,124 @@ class TestAdvancedEnterpriseCapabilities(unittest.TestCase):
             self.assertIn("parts", rendered)
             self.assertGreater(len(rendered["parts"]), 0)
 
+    def test_14_tally_xml_data_interchange_roundtrip(self):
+        """Tests importing and exporting official Tally XML Data Interchange format."""
+        xml_sample = """<ENVELOPE>
+  <HEADER>
+    <TALLYREQUEST>Import Data</TALLYREQUEST>
+  </HEADER>
+  <BODY>
+    <IMPORTDATA>
+      <REQUESTDATA>
+        <TALLYMESSAGE>
+          <LEDGER NAME="Apex Systems Pvt Ltd" ACTION="Create">
+            <NAME>Apex Systems Pvt Ltd</NAME>
+            <PARENT>Sundry Debtors</PARENT>
+            <OPENINGBALANCE>-75000.00</OPENINGBALANCE>
+            <PARTYGSTIN>29AABCA1234F1Z5</PARTYGSTIN>
+            <STATENAME>Karnataka</STATENAME>
+          </LEDGER>
+        </TALLYMESSAGE>
+        <TALLYMESSAGE>
+          <STOCKITEM NAME="UltraFast NVMe SSD 1TB" ACTION="Create">
+            <NAME>UltraFast NVMe SSD 1TB</NAME>
+            <BASEUNITS>Pcs</BASEUNITS>
+            <OPENINGBALANCE>50 Pcs</OPENINGBALANCE>
+            <OPENINGVALUE>250000.00</OPENINGVALUE>
+            <GSTRATE>18.0</GSTRATE>
+          </STOCKITEM>
+        </TALLYMESSAGE>
+        <TALLYMESSAGE>
+          <VOUCHER VCHTYPE="Sales" ACTION="Create">
+            <DATE>20261025</DATE>
+            <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>
+            <VOUCHERNUMBER>XML-INV-001</VOUCHERNUMBER>
+            <PARTYLEDGERNAME>Apex Systems Pvt Ltd</PARTYLEDGERNAME>
+            <NARRATION>Credit sale imported from Tally XML</NARRATION>
+            <ALLLEDGERENTRIES.LIST>
+              <LEDGERNAME>Apex Systems Pvt Ltd</LEDGERNAME>
+              <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+              <AMOUNT>-11800.00</AMOUNT>
+            </ALLLEDGERENTRIES.LIST>
+            <ALLLEDGERENTRIES.LIST>
+              <LEDGERNAME>Sales Account</LEDGERNAME>
+              <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+              <AMOUNT>10000.00</AMOUNT>
+            </ALLLEDGERENTRIES.LIST>
+            <ALLLEDGERENTRIES.LIST>
+              <LEDGERNAME>Output CGST</LEDGERNAME>
+              <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+              <AMOUNT>900.00</AMOUNT>
+            </ALLLEDGERENTRIES.LIST>
+            <ALLLEDGERENTRIES.LIST>
+              <LEDGERNAME>Output SGST</LEDGERNAME>
+              <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+              <AMOUNT>900.00</AMOUNT>
+            </ALLLEDGERENTRIES.LIST>
+            <ALLINVENTORYENTRIES.LIST>
+              <STOCKITEMNAME>UltraFast NVMe SSD 1TB</STOCKITEMNAME>
+              <ACTUALQTY>2 Pcs</ACTUALQTY>
+              <RATE>5000.00</RATE>
+              <AMOUNT>10000.00</AMOUNT>
+              <GODOWNNAME>Main Location</GODOWNNAME>
+            </ALLINVENTORYENTRIES.LIST>
+          </VOUCHER>
+        </TALLYMESSAGE>
+      </REQUESTDATA>
+    </IMPORTDATA>
+  </BODY>
+</ENVELOPE>"""
+
+        # 1. Test database XML import
+        res = self.db.import_tally_xml(xml_sample)
+        self.assertTrue(res["success"])
+        self.assertGreaterEqual(res["imported_ledgers"], 1)
+        self.assertGreaterEqual(res["imported_items"], 1)
+        self.assertGreaterEqual(res["imported_vouchers"], 1)
+
+        # Verify ledger imported
+        led = self.db.get_ledger("Apex Systems Pvt Ltd")
+        self.assertIsNotNone(led)
+        self.assertEqual(led["group_name"], "Sundry Debtors")
+        self.assertEqual(led["opening_balance"], 75000.0)
+        self.assertEqual(led["opening_balance_type"], "Dr")
+
+        # Verify item imported
+        itm = self.db.get_stock_item("UltraFast NVMe SSD 1TB")
+        self.assertIsNotNone(itm)
+
+        # 2. Test database XML export
+        exported_xml = self.db.export_tally_xml()
+        self.assertIn("<ENVELOPE>", exported_xml)
+        self.assertIn("Apex Systems Pvt Ltd", exported_xml)
+        self.assertIn("UltraFast NVMe SSD 1TB", exported_xml)
+        self.assertIn("XML-INV-001", exported_xml)
+
+        # 3. Test API integration over HTTP
+        port = 8894
+        server = HTTPServer(("127.0.0.1", port), TallyRequestHandler)
+        t = threading.Thread(target=server.serve_forever, daemon=True)
+        t.start()
+        time.sleep(0.3)
+
+        try:
+            base_url = f"http://127.0.0.1:{port}"
+            # POST import
+            req_data = json.dumps({"xml_data": xml_sample}).encode("utf-8")
+            req = urllib.request.Request(f"{base_url}/api/tally/xml/import", data=req_data, headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req) as resp:
+                self.assertEqual(resp.status, 200)
+                body = json.loads(resp.read().decode())
+                self.assertTrue(body["success"])
+
+            # GET export
+            with urllib.request.urlopen(f"{base_url}/api/tally/xml/export") as resp:
+                self.assertEqual(resp.status, 200)
+                self.assertIn("application/xml", resp.headers.get("Content-Type"))
+                xml_out = resp.read().decode("utf-8")
+                self.assertIn("<ENVELOPE>", xml_out)
+        finally:
+            server.shutdown()
+
 if __name__ == "__main__":
     unittest.main()

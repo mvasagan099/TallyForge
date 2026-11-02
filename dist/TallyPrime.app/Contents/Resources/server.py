@@ -664,6 +664,17 @@ class TallyRequestHandler(BaseHTTPRequestHandler):
         elif path == "/api/inventory/negative_stock_policy":
             return self.send_json(200, {"allow_negative_stock": db.get_negative_stock_policy()})
 
+        # Tally XML Data Interchange Export
+        elif path == "/api/tally/xml/export":
+            xml_data = db.export_tally_xml()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/xml; charset=utf-8")
+            self.send_header("Content-Disposition", 'attachment; filename="TallyForge_Data.xml"')
+            self.send_header("Content-Length", str(len(xml_data.encode("utf-8"))))
+            self.end_headers()
+            self.wfile.write(xml_data.encode("utf-8"))
+            return
+
         else:
             self.send_error(404, "Endpoint not found")
 
@@ -1673,6 +1684,14 @@ class TallyRequestHandler(BaseHTTPRequestHandler):
                 return self.send_json(200, {"status": "success", "allow_negative_stock": allow})
             except Exception as e:
                 return self.send_json(400, {"error": str(e)})
+
+        # Tally XML Data Interchange Import
+        elif path == "/api/tally/xml/import":
+            xml_content = data.get("xml_data") or data.get("content") or ""
+            if not xml_content:
+                return self.send_json(400, {"error": "Missing 'xml_data' parameter"})
+            res = db.import_tally_xml(xml_content)
+            return self.send_json(200 if res.get("success") else 400, res)
 
         else:
             self.send_error(404, "Endpoint not found")

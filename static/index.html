@@ -697,6 +697,7 @@
                 <button class="btn-tally-primary" onclick="exportEWayBillJSON()" style="background:#00695c;">Generate e-Way Bill JSON (NIC Schema)</button>
                 <button class="btn-tally-primary" onclick="downloadGSTR1JSON(); closeExportModal();" style="background:#2e7d32;">Download GSTR-1 Return (GSTN Schema)</button>
                 <button class="btn-tally-primary" onclick="exportDataCSV(); closeExportModal();" style="background:#455a64;">Export Current Report to CSV</button>
+                <button class="btn-tally-primary" onclick="downloadTallyXML(); closeExportModal();" style="background:#004d40;">Download Full Tally XML (Data Interchange)</button>
             </div>
         </div>
     </div>
@@ -784,6 +785,16 @@
                     <p style="font-size:0.78rem; color:#555; margin:0 0 6px 0;">Paste custom TDL code to compile and inject dynamically into the runtime AST.</p>
                     <textarea id="import-tdl-text" class="tally-input" style="width:100%; height:60px; font-family:monospace; font-size:0.75rem;" placeholder="[#Menu: Gateway of Tally]&#10;Add: Item: 'Custom Audit': Display: AuditEditLog"></textarea>
                     <button class="btn-tally-primary" onclick="submitImportTDL()" style="margin-top:6px; width:100%; background:#2e7d32;">Inject TDL Definition</button>
+                </div>
+
+                <div style="border:1px solid #b2dfdb; padding:10px; background:#fafdfc;">
+                    <div style="font-weight:bold; font-size:0.85rem; color:#004d40; margin-bottom:4px;">3. Import Existing Tally Data (Tally XML)</div>
+                    <p style="font-size:0.78rem; color:#555; margin:0 0 6px 0;">Import Masters, Ledgers, Items &amp; Vouchers exported from TallyPrime / Tally.ERP 9.</p>
+                    <textarea id="import-tally-xml-text" class="tally-input" style="width:100%; height:70px; font-family:monospace; font-size:0.75rem;" placeholder="Paste Tally XML or &lt;ENVELOPE&gt; content here..."></textarea>
+                    <div style="display:flex; gap:6px; margin-top:6px;">
+                        <input type="file" id="import-tally-xml-file" accept=".xml" style="font-size:0.75rem; flex:1;" onchange="handleTallyXMLFileUpload(event)">
+                        <button class="btn-tally-primary" onclick="submitImportTallyXML()" style="background:#00695c; flex:1;">Import Tally XML</button>
+                    </div>
                 </div>
             </div>
         </div>
