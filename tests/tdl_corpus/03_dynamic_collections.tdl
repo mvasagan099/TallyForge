@@ -1,0 +1,21 @@
+;; =========================================================
+;; Fixture 03: Dynamic Collections with Filters and Sort
+;; =========================================================
+
+[Collection: HighValueDebtors]
+Type : Ledger
+ChildOf : "Sundry Debtors"
+Filter : IsHighBalance
+Fetch : Name, ClosingBalance, ContactPerson
+Sort : @@Default : $ClosingBalance
+
+[Collection: ActiveBankAccounts]
+Type : Ledger
+ChildOf : "Bank Accounts"
+Filter : HasTransactions
+Fetch : Name, ClosingBalance
+
+[Collection: TopInventoryItems]
+Type : StockItem
+Filter : HasStock
+Sort : @@Default : $ClosingValue

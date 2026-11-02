@@ -1,0 +1,29 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# macOS / OS files
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.Spotlight-V100
+.Trashes
+
+# Temporary test databases & WAL files
+*.db-shm
+*.db-wal
+*.pre_restore_snapshot
+test_*.db
+test.db
+
+# Dynamic local backups (keep directory via .gitkeep)
+backups/*
+!backups/.gitkeep
+
+# Large precompiled binaries
+setup.exe

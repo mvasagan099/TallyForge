@@ -1,0 +1,49 @@
+;; =========================================================
+;; Fixture 02: Multi-Form and Nested Part Definitions
+;; =========================================================
+
+[Report: CorporateSummary]
+Title : "Corporate Multi-Part Summary"
+Form : CorporateForm
+
+[Form: CorporateForm]
+Part : CorpHeaderPart, CorpBodyPart, CorpFooterPart
+
+[Part: CorpHeaderPart]
+Line : CorpHeaderTitleLine
+
+[Line: CorpHeaderTitleLine]
+Field : CorpHeaderTitleField
+
+[Field: CorpHeaderTitleField]
+Set as : "EXECUTIVE CONSOLIDATED AUDIT SUMMARY"
+Width : 50
+
+[Part: CorpBodyPart]
+Line : CorpDetailLine
+Repeat : CorpDetailLine : AllLedgersCollection
+
+[Line: CorpDetailLine]
+Field : CorpLedgerName, CorpLedgerGroup, CorpLedgerClosing
+
+[Field: CorpLedgerName]
+Set as : $Name
+Width : 35
+
+[Field: CorpLedgerGroup]
+Set as : $Parent
+Width : 25
+
+[Field: CorpLedgerClosing]
+Set as : $ClosingBalance
+Width : 20
+
+[Part: CorpFooterPart]
+Line : CorpFooterLine
+
+[Line: CorpFooterLine]
+Field : CorpFooterAuditStamp
+
+[Field: CorpFooterAuditStamp]
+Set as : "Audited Under Companies Act 2013 Rule 3(1)"
+Width : 60

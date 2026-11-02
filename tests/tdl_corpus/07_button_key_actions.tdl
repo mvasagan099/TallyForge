@@ -1,0 +1,17 @@
+;; =========================================================
+;; Fixture 07: Buttons, Hotkeys, and Action Bindings
+;; =========================================================
+
+[Button: ExportPDFBtn]
+Title : "Export PDF"
+Key : Alt+P
+Action : Execute : ExportPDFReport
+
+[Button: ToggleAuditLogBtn]
+Title : "View Audit Trail"
+Key : Alt+A
+Action : Display : AuditEditLog
+
+[Key: CustomCloseKey]
+Key : Esc
+Action : Quit

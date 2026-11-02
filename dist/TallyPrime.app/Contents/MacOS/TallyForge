@@ -1,0 +1,6 @@
+#!/bin/bash
+DIR="$(cd "$(dirname "$0")/../Resources" && pwd)"
+cd "$DIR"
+
+# Launch desktop app with local python3
+exec python3 desktop_app.py

@@ -1,0 +1,20 @@
+;; =========================================================
+;; Fixture 05: User Defined Fields (UDF) & Voucher Schema Extension
+;; =========================================================
+
+[System: UDF]
+VehicleRegNo : String : 1001
+TransporterID : String : 1002
+EWayBillNo : String : 1003
+CustomQualityGrade : String : 1004
+
+[#Line: VoucherStandardLine]
+Add : Field : VchVehicleField, VchEWayBillField
+
+[Field: VchVehicleField]
+Set as : $VehicleRegNo
+Width : 16
+
+[Field: VchEWayBillField]
+Set as : $EWayBillNo
+Width : 20

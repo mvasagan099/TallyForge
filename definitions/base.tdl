@@ -1,0 +1,1054 @@
+;; =========================================================
+;; Tally Definition Language (TDL) - Full 2026 Menu & Reports
+;; =========================================================
+
+[Menu: Gateway of Tally]
+Title : "Gateway of Tally"
+;; MASTERS
+Item : "Create" : Display : MasterCreateMenu
+Item : "Alter" : Display : MasterAlterMenu
+Item : "Chart of Accounts" : Display : AccountsInfo
+
+;; TRANSACTIONS
+Item : "Vouchers" : Display : VoucherEntry
+Item : "Day Book" : Display : DayBook
+
+;; UTILITIES
+Item : "Banking & BRS" : Display : BankReconciliation
+Item : "Payroll Pay Sheet" : Display : PayrollSummary
+
+;; REPORTS
+Item : "Balance Sheet" : Display : BalanceSheet
+Item : "Profit & Loss A/c" : Display : ProfitAndLoss
+Item : "Stock Summary" : Display : StockSummary
+Item : "Ratio Analysis" : Display : RatioAnalysis
+Item : "Bills Receivable (Ageing)" : Display : OutstandingReceivables
+Item : "GSTR-1 Outward Return" : Display : GSTR1
+Item : "GSTR-3B Monthly Summary" : Display : GSTR3B
+Item : "Statutory Audit (Edit Log)" : Display : AuditEditLog
+Item : "Trial Balance" : Display : TrialBalance
+Item : "Fixed Assets & Depreciation" : Display : FixedAssets
+Item : "Sales & Purchase Orders" : Display : OrderTracking
+Item : "GSTR-2B ITC Reconciliation" : Display : GSTR2BRecon
+Item : "Landed Cost Allocation" : Display : LandedCost
+Item : "Point of Sale (POS)" : Display : POSBilling
+Item : "Forex Revaluation Statement" : Display : ForexRevaluation
+Item : "Delivery & Receipt Challans" : Display : Challans
+Item : "TCS Register" : Display : TCSRegister
+Item : "Job Work & Subcontracting" : Display : JobWorkRegister
+Item : "Quality Inspection & QC" : Display : QualityInspection
+Item : "Multi-Currency Rates" : Display : CurrencyExchange
+Item : "Payment Reconciliation" : Display : PaymentRecon
+Item : "Audit Trail Diff Viewer" : Display : AuditDiff
+Item : "MSME 45-Day Compliance" : Display : MSMECompliance
+Item : "Schedule III Balance Sheet" : Display : ScheduleIIIBalanceSheet
+Item : "Rejections In & Out Register" : Display : RejectionsRegister
+Item : "TDL Studio" : Display : TDLStudio
+Item : "Quit" : Action : Quit
+
+;; =========================================================
+;; Report: Trial Balance
+;; =========================================================
+[Report: TrialBalance]
+Title : "Trial Balance"
+Form : TrialBalanceForm
+
+[Form: TrialBalanceForm]
+Part : TrialBalancePart
+
+[Part: TrialBalancePart]
+Line : TBHeaderLine, TBDetailLine
+Repeat : TBDetailLine : AllLedgersCollection
+
+[Line: TBHeaderLine]
+Field : TBHeaderParticulars, TBHeaderGroup, TBHeaderDr, TBHeaderCr
+
+[Field: TBHeaderParticulars]
+Set as : "Particulars"
+Width : 35
+
+[Field: TBHeaderGroup]
+Set as : "Parent Group"
+Width : 25
+
+[Field: TBHeaderDr]
+Set as : "Debit (₹)"
+Width : 18
+Align : Right
+
+[Field: TBHeaderCr]
+Set as : "Credit (₹)"
+Width : 18
+Align : Right
+
+[Line: TBDetailLine]
+Field : TBLedgerName, TBGroupName, TBDebitAmount, TBCreditAmount
+
+[Field: TBLedgerName]
+Use : Name Field
+Set as : $Name
+Width : 35
+
+[Field: TBGroupName]
+Use : Name Field
+Set as : $GroupName
+Width : 25
+
+[Field: TBDebitAmount]
+Use : Amount Field
+Set as : $DrAmount
+Width : 18
+Align : Right
+
+[Field: TBCreditAmount]
+Use : Amount Field
+Set as : $CrAmount
+Width : 18
+Align : Right
+
+[Collection: AllLedgersCollection]
+Type : TrialBalance
+Filter : NonZeroBalance
+
+;; =========================================================
+;; Report: Stock Summary (Inventory)
+;; =========================================================
+[Report: StockSummary]
+Title : "Stock Summary"
+Form : StockSummaryForm
+
+[Form: StockSummaryForm]
+Part : StockSummaryPart
+
+[Part: StockSummaryPart]
+Line : SSHeaderLine, SSDetailLine
+Repeat : SSDetailLine : StockItemsCollection
+
+[Line: SSHeaderLine]
+Field : SSHItem, SSHUom, SSHQty, SSHRate, SSHValue
+
+[Field: SSHItem]
+Set as : "Item Description"
+Width : 35
+
+[Field: SSHUom]
+Set as : "Unit"
+Width : 10
+
+[Field: SSHQty]
+Set as : "Quantity"
+Width : 15
+Align : Right
+
+[Field: SSHRate]
+Set as : "Rate (₹)"
+Width : 15
+Align : Right
+
+[Field: SSHValue]
+Set as : "Closing Value (₹)"
+Width : 20
+Align : Right
+
+[Line: SSDetailLine]
+Field : SSItem, SSUom, SSQty, SSRate, SSValue
+
+[Field: SSItem]
+Use : Name Field
+Set as : $Name
+Width : 35
+
+[Field: SSUom]
+Set as : $Uom
+Width : 10
+
+[Field: SSQty]
+Use : Amount Field
+Set as : $ClosingQty
+Width : 15
+Align : Right
+
+[Field: SSRate]
+Use : Amount Field
+Set as : $ClosingRate
+Width : 15
+Align : Right
+
+[Field: SSValue]
+Use : Amount Field
+Set as : $ClosingValue
+Width : 20
+Align : Right
+
+[Collection: StockItemsCollection]
+Type : StockItem
+
+;; ============================================================================
+;; PHASE 3: NEW TDL DEFINITIONS & REPORTS
+;; ============================================================================
+
+[Report: FundsFlow]
+Form : FundsFlowForm
+Title : "Funds Flow Statement"
+
+[Form: FundsFlowForm]
+Part : FundsFlowPart
+
+[Part: FundsFlowPart]
+Line : FFHeaderLine
+
+[Line: FFHeaderLine]
+Field : FFParticularsField, FFAmountField
+
+[Field: FFParticularsField]
+Set as : "Particulars"
+Width : 65
+
+[Field: FFAmountField]
+Set as : "Amount (₹)"
+Width : 35
+Align : Right
+
+[Report: BudgetVariance]
+Form : BudgetVarianceForm
+Title : "Budget Variance Analysis"
+
+[Form: BudgetVarianceForm]
+Part : BudgetVariancePart
+
+[Part: BudgetVariancePart]
+Line : BVHeaderLine
+Repeat : BVDetailLine : BudgetsCollection
+
+[Line: BVHeaderLine]
+Field : BVHBudget, BVHLedger, BVHBudgeted, BVHActual, BVHVariance
+
+[Field: BVHBudget]
+Set as : "Budget Name"
+Width : 20
+
+[Field: BVHLedger]
+Set as : "Ledger"
+Width : 28
+
+[Field: BVHBudgeted]
+Set as : "Budgeted (₹)"
+Width : 18
+Align : Right
+
+[Field: BVHActual]
+Set as : "Actual (₹)"
+Width : 18
+Align : Right
+
+[Field: BVHVariance]
+Set as : "Variance (₹)"
+Width : 16
+Align : Right
+
+[Line: BVDetailLine]
+Field : BVDName, BVDLedger, BVDBudgeted, BVDActual, BVDVariance
+
+[Field: BVDName]
+Set as : $BudgetName
+Width : 20
+
+[Field: BVDLedger]
+Set as : $LedgerName
+Width : 28
+
+[Field: BVDBudgeted]
+Use : Amount Field
+Set as : $BudgetedAmount
+Width : 18
+Align : Right
+
+[Field: BVDActual]
+Use : Amount Field
+Set as : $ActualAmount
+Width : 18
+Align : Right
+
+[Field: BVDVariance]
+Use : Amount Field
+Set as : $Variance
+Width : 16
+Align : Right
+
+[Collection: BudgetsCollection]
+Type : Budget
+
+[Report: InventoryAgeing]
+Form : InventoryAgeingForm
+Title : "Inventory Ageing Analysis"
+
+[Form: InventoryAgeingForm]
+Part : InventoryAgeingPart
+
+[Part: InventoryAgeingPart]
+Line : AgeingHeaderLine
+
+[Line: AgeingHeaderLine]
+Field : AgeItem, AgeQty, AgeVal, AgeB1, AgeB2, AgeB3, AgeB4
+
+[Field: AgeItem]
+Set as : "Stock Item"
+Width : 28
+
+[Field: AgeQty]
+Set as : "Total Qty"
+Width : 12
+Align : Right
+
+[Field: AgeVal]
+Set as : "Value (₹)"
+Width : 16
+Align : Right
+
+[Field: AgeB1]
+Set as : "0-30 Days"
+Width : 11
+Align : Right
+
+[Field: AgeB2]
+Set as : "31-60 Days"
+Width : 11
+Align : Right
+
+[Field: AgeB3]
+Set as : "61-90 Days"
+Width : 11
+Align : Right
+
+[Field: AgeB4]
+Set as : ">90 Days"
+Width : 11
+Align : Right
+
+[Report: GSTR9]
+Form : GSTR9Form
+Title : "GSTR-9 Annual Return Summary"
+
+[Form: GSTR9Form]
+Part : GSTR9Part
+
+[Part: GSTR9Part]
+Line : G9HeaderLine
+
+[Line: G9HeaderLine]
+Field : G9TableField, G9AmountField
+
+[Field: G9TableField]
+Set as : "GSTR-9 Return Table & Description"
+Width : 65
+
+[Field: G9AmountField]
+Set as : "Amount (₹)"
+Width : 35
+Align : Right
+
+[Report: ConsolidatedFinancials]
+Form : ConsolidatedForm
+Title : "Consolidated Financial Statement"
+
+[Form: ConsolidatedForm]
+Part : ConsolidatedPart
+
+[Part: ConsolidatedPart]
+Line : CFinHeaderLine
+
+[Line: CFinHeaderLine]
+Field : CFinParticulars, CFinAmount
+
+[Field: CFinParticulars]
+Set as : "Consolidated Group Summary"
+Width : 65
+
+[Field: CFinAmount]
+Set as : "Amount (₹)"
+Width : 35
+Align : Right
+
+[Report: TdsRegister]
+Form : TdsRegisterForm
+Title : "TDS Withholding Tax Register"
+
+[Form: TdsRegisterForm]
+Part : TdsRegisterPart
+
+[Part: TdsRegisterPart]
+Line : TdsHeaderLine
+Repeat : TdsDetailLine : TdsCollection
+
+[Line: TdsHeaderLine]
+Field : TdsHDate, TdsHVch, TdsHLedger, TdsHAmount
+
+[Field: TdsHDate]
+Set as : "Date"
+Width : 14
+
+[Field: TdsHVch]
+Set as : "Vch No"
+Width : 16
+
+[Field: TdsHLedger]
+Set as : "TDS Ledger"
+Width : 40
+
+[Field: TdsHAmount]
+Set as : "TDS Deducted (₹)"
+Width : 30
+Align : Right
+
+[Line: TdsDetailLine]
+Field : TdsDDate, TdsDVch, TdsDLedger, TdsDAmount
+
+[Field: TdsDDate]
+Set as : $Date
+Width : 14
+
+[Field: TdsDVch]
+Set as : $VoucherNumber
+Width : 16
+
+[Field: TdsDLedger]
+Set as : $TdsLedger
+Width : 40
+
+[Field: TdsDAmount]
+Use : Amount Field
+Set as : $TdsAmount
+Width : 30
+Align : Right
+
+[Collection: TdsCollection]
+Type : TDS
+
+[Report: ChequeRegister]
+Form : ChequeRegisterForm
+Title : "Cheque Register & Books"
+
+[Form: ChequeRegisterForm]
+Part : ChequeRegisterPart
+
+[Part: ChequeRegisterPart]
+Line : ChqHeaderLine
+
+[Line: ChqHeaderLine]
+Field : ChqHBank, ChqHBook, ChqHFrom, ChqHTo, ChqHNext
+
+[Field: ChqHBank]
+Set as : "Bank Ledger"
+Width : 30
+
+[Field: ChqHBook]
+Set as : "Book Name"
+Width : 25
+
+[Field: ChqHFrom]
+Set as : "From No"
+Width : 15
+Align : Right
+
+[Field: ChqHTo]
+Set as : "To No"
+Width : 15
+Align : Right
+
+[Field: ChqHNext]
+Set as : "Next Chq No"
+Width : 15
+Align : Right
+
+[Report: MfgCost]
+Form : MfgCostForm
+Title : "Manufacturing & BOM Cost Sheet"
+
+[Form: MfgCostForm]
+Part : MfgCostPart
+
+[Part: MfgCostPart]
+Line : MfgHeaderLine
+
+[Line: MfgHeaderLine]
+Field : MfgHBOM, MfgHItem, MfgHQty, MfgHCost
+
+[Field: MfgHBOM]
+Set as : "BOM Name"
+Width : 30
+
+[Field: MfgHItem]
+Set as : "Finished Item"
+Width : 30
+
+[Field: MfgHQty]
+Set as : "Unit Qty"
+Width : 15
+Align : Right
+
+[Field: MfgHCost]
+Set as : "Cost/Unit (₹)"
+Width : 25
+Align : Right
+
+[Report: FixedAssets]
+Form : FixedAssetsForm
+Title : "Fixed Assets & Depreciation Register"
+
+[Form: FixedAssetsForm]
+Part : FixedAssetsPart
+
+[Part: FixedAssetsPart]
+Line : FAHeaderLine
+
+[Line: FAHeaderLine]
+Field : FAHCode, FAHName, FAHCategory, FAHCost, FAHDep, FAHVal
+
+[Field: FAHCode]
+Set as : "Asset Code"
+Width : 15
+
+[Field: FAHName]
+Set as : "Asset Name"
+Width : 25
+
+[Field: FAHCategory]
+Set as : "Category"
+Width : 20
+
+[Field: FAHCost]
+Set as : "Cost (₹)"
+Width : 18
+Align : Right
+
+[Field: FAHDep]
+Set as : "Depr (₹)"
+Width : 16
+Align : Right
+
+[Field: FAHVal]
+Set as : "Book Val (₹)"
+Width : 18
+Align : Right
+
+[Report: OrderTracking]
+Form : OrderTrackingForm
+Title : "Sales & Purchase Order Fulfillment Tracking"
+
+[Form: OrderTrackingForm]
+Part : OrderTrackingPart
+
+[Part: OrderTrackingPart]
+Line : OrdHeaderLine
+
+[Line: OrdHeaderLine]
+Field : OrdHDate, OrdHNo, OrdHType, OrdHParty, OrdHTotal, OrdHStatus
+
+[Field: OrdHDate]
+Set as : "Date"
+Width : 12
+
+[Field: OrdHNo]
+Set as : "Order No"
+Width : 16
+
+[Field: OrdHType]
+Set as : "Type"
+Width : 16
+
+[Field: OrdHParty]
+Set as : "Party Ledger"
+Width : 22
+
+[Field: OrdHTotal]
+Set as : "Order Total (₹)"
+Width : 18
+Align : Right
+
+[Field: OrdHStatus]
+Set as : "Status"
+Width : 14
+
+[Report: GSTR2BRecon]
+Form : GSTR2BReconForm
+Title : "GSTR-2B Inward Purchase ITC 4-Way Reconciliation"
+
+[Form: GSTR2BReconForm]
+Part : GSTR2BReconPart
+
+[Part: GSTR2BReconPart]
+Line : G2BHeaderLine
+
+[Line: G2BHeaderLine]
+Field : G2BHPeriod, G2BHTotal, G2BHMatched, G2BHMismatch
+
+[Field: G2BHPeriod]
+Set as : "Return Period"
+Width : 20
+
+[Field: G2BHTotal]
+Set as : "Total Invoices"
+Width : 15
+Align : Right
+
+[Field: G2BHMatched]
+Set as : "Matched"
+Width : 15
+Align : Right
+
+[Field: G2BHMismatch]
+Set as : "Mismatch"
+Width : 15
+Align : Right
+
+[Report: LandedCost]
+Form : LandedCostForm
+Title : "Landed Cost & Additional Purchase Cost Summary"
+
+[Form: LandedCostForm]
+Part : LandedCostPart
+
+[Part: LandedCostPart]
+Line : LCHeaderLine
+
+[Line: LCHeaderLine]
+Field : LCHVch, LCHPurchase, LCHLedger, LCHAmount
+
+[Field: LCHVch]
+Set as : "Landed Vch No"
+Width : 18
+
+[Field: LCHPurchase]
+Set as : "Purchase Vch"
+Width : 18
+
+[Field: LCHLedger]
+Set as : "Expense Ledger"
+Width : 25
+
+[Field: LCHAmount]
+Set as : "Amount (₹)"
+Width : 18
+Align : Right
+
+[Report: POSBilling]
+Form : POSBillingForm
+Title : "Point of Sale (POS) Fast Billing Register"
+
+[Form: POSBillingForm]
+Part : POSBillingPart
+
+[Part: POSBillingPart]
+Line : POSHeaderLine
+
+[Line: POSHeaderLine]
+Field : POSHInv, POSHTotal, POSHCash, POSHCard, POSHUPI
+
+[Field: POSHInv]
+Set as : "POS Inv No"
+Width : 18
+
+[Field: POSHTotal]
+Set as : "Bill Total (₹)"
+Width : 18
+Align : Right
+
+[Field: POSHCash]
+Set as : "Cash (₹)"
+Width : 15
+Align : Right
+
+[Field: POSHCard]
+Set as : "Card (₹)"
+Width : 15
+Align : Right
+
+[Field: POSHUPI]
+Set as : "UPI (₹)"
+Width : 15
+Align : Right
+
+[Report: ForexRevaluation]
+Form : ForexRevaluationForm
+Title : "Foreign Exchange Gain/Loss & Revaluation Summary"
+
+[Form: ForexRevaluationForm]
+Part : ForexRevaluationPart
+
+[Part: ForexRevaluationPart]
+Line : ForexHeaderLine
+
+[Line: ForexHeaderLine]
+Field : ForexHDate, ForexHVch, ForexHCurr, ForexHImpact
+
+[Field: ForexHDate]
+Set as : "Date"
+Width : 14
+
+[Field: ForexHVch]
+Set as : "Vch No"
+Width : 16
+
+[Field: ForexHCurr]
+Set as : "Currency"
+Width : 12
+
+[Field: ForexHImpact]
+Set as : "Forex Gain/Loss (₹)"
+Width : 20
+Align : Right
+
+[Report: Challans]
+Form : ChallansForm
+Title : "Goods Delivery & Receipt Notes"
+
+[Form: ChallansForm]
+Part : ChallansPart
+
+[Part: ChallansPart]
+Line : ChallanHeaderLine
+
+[Line: ChallanHeaderLine]
+Field : ChHNo, ChHType, ChHParty, ChHAmount, ChHStatus
+
+[Field: ChHNo]
+Set as : "Challan No"
+Width : 18
+
+[Field: ChHType]
+Set as : "Type"
+Width : 16
+
+[Field: ChHParty]
+Set as : "Party Ledger"
+Width : 24
+
+[Field: ChHAmount]
+Set as : "Amount (₹)"
+Width : 18
+Align : Right
+
+[Field: ChHStatus]
+Set as : "Status"
+Width : 14
+
+[Report: TCSRegister]
+Form : TCSRegisterForm
+Title : "Tax Collected at Source (TCS) Register"
+
+[Form: TCSRegisterForm]
+Part : TCSRegisterPart
+
+[Part: TCSRegisterPart]
+Line : TCSHeaderLine
+
+[Line: TCSHeaderLine]
+Field : TCSHVch, TCSHParticulars, TCSHAmount
+
+[Field: TCSHVch]
+Set as : "Vch No"
+Width : 18
+
+[Field: TCSHParticulars]
+Set as : "Particulars"
+Width : 35
+
+[Field: TCSHAmount]
+Set as : "TCS Collected (₹)"
+Width : 20
+Align : Right
+
+[Report: JobWorkRegister]
+Form : JobWorkRegisterForm
+Title : "Subcontracting & Job Work Register"
+
+[Form: JobWorkRegisterForm]
+Part : JobWorkRegisterPart
+
+[Part: JobWorkRegisterPart]
+Line : JWHeaderLine
+
+[Line: JWHeaderLine]
+Field : JWHNo, JWHType, JWHWorker, JWHFinished, JWHQty, JWHStatus
+
+[Field: JWHNo]
+Set as : "Order No"
+Width : 16
+
+[Field: JWHType]
+Set as : "Type"
+Width : 14
+
+[Field: JWHWorker]
+Set as : "Job Worker"
+Width : 22
+
+[Field: JWHFinished]
+Set as : "Finished Item"
+Width : 25
+
+[Field: JWHQty]
+Set as : "Qty"
+Width : 10
+Align : Right
+
+[Field: JWHStatus]
+Set as : "Status"
+Width : 14
+
+[Report: QualityInspection]
+Form : QualityInspectionForm
+Title : "Quality Control & Inspection Register"
+
+[Form: QualityInspectionForm]
+Part : QualityInspectionPart
+
+[Part: QualityInspectionPart]
+Line : QIHeaderLine
+
+[Line: QIHeaderLine]
+Field : QIHNo, QIHDate, QIHRef, QIHItem, QIHStatus, QIHRemarks
+
+[Field: QIHNo]
+Set as : "Inspection No"
+Width : 18
+
+[Field: QIHDate]
+Set as : "Date"
+Width : 12
+
+[Field: QIHRef]
+Set as : "Reference"
+Width : 16
+
+[Field: QIHItem]
+Set as : "Stock Item"
+Width : 25
+
+[Field: QIHStatus]
+Set as : "QC Status"
+Width : 14
+
+[Field: QIHRemarks]
+Set as : "Remarks"
+Width : 25
+
+[Report: CurrencyExchange]
+Form : CurrencyExchangeForm
+Title : "Multi-Currency & Historical Rates Register"
+
+[Form: CurrencyExchangeForm]
+Part : CurrencyExchangePart
+
+[Part: CurrencyExchangePart]
+Line : CurrHeaderLine
+
+[Line: CurrHeaderLine]
+Field : CurrHSymbol, CurrHName, CurrHDate, CurrHRate, CurrHBuy, CurrHSell
+
+[Field: CurrHSymbol]
+Set as : "Symbol"
+Width : 10
+
+[Field: CurrHName]
+Set as : "Formal Name"
+Width : 18
+
+[Field: CurrHDate]
+Set as : "Effective Date"
+Width : 16
+
+[Field: CurrHRate]
+Set as : "Standard Rate"
+Width : 16
+Align : Right
+
+[Field: CurrHBuy]
+Set as : "Buying Rate"
+Width : 16
+Align : Right
+
+[Field: CurrHSell]
+Set as : "Selling Rate"
+Width : 16
+Align : Right
+
+[Report: PaymentRecon]
+Form : PaymentReconForm
+Title : "Payment & Advance Bill Reconciliation"
+
+[Form: PaymentReconForm]
+Part : PaymentReconPart
+
+[Part: PaymentReconPart]
+Line : ReconHeaderLine
+
+[Line: ReconHeaderLine]
+Field : RecHParty, RecHBill, RecHAmount, RecHPending, RecHStatus
+
+[Field: RecHParty]
+Set as : "Party Ledger"
+Width : 25
+
+[Field: RecHBill]
+Set as : "Bill Ref"
+Width : 18
+
+[Field: RecHAmount]
+Set as : "Bill Amount (₹)"
+Width : 18
+Align : Right
+
+[Field: RecHPending]
+Set as : "Pending (₹)"
+Width : 18
+Align : Right
+
+[Field: RecHStatus]
+Set as : "Settlement Status"
+Width : 18
+
+[Report: AuditDiff]
+Form : AuditDiffForm
+Title : "Statutory Audit Trail (MCA Edit Log Diff)"
+
+[Form: AuditDiffForm]
+Part : AuditDiffPart
+
+[Part: AuditDiffPart]
+Line : ADHeaderLine
+
+[Line: ADHeaderLine]
+Field : ADHVch, ADHTime, ADHUser, ADHAction, ADHChanges
+
+[Field: ADHVch]
+Set as : "Entity / Vch"
+Width : 16
+
+[Field: ADHTime]
+Set as : "Timestamp"
+Width : 20
+
+[Field: ADHUser]
+Set as : "Modified By"
+Width : 14
+
+[Field: ADHAction]
+Set as : "Action"
+Width : 12
+
+[Field: ADHChanges]
+Set as : "Field Changes (Before -> After)"
+Width : 45
+
+[Report: MSMECompliance]
+Form : MSMEComplianceForm
+Title : "MSME Section 43B(h) 45-Day Compliance Statement"
+
+[Form: MSMEComplianceForm]
+Part : MSMECompliancePart
+
+[Part: MSMECompliancePart]
+Line : MSMEHeaderLine
+
+[Line: MSMEHeaderLine]
+Field : MSMEHParty, MSMEHBill, MSMEHAmt, MSMEHAge, MSMEHStatus, MSMEHInterest
+
+[Field: MSMEHParty]
+Set as : "MSME Supplier"
+Width : 25
+
+[Field: MSMEHBill]
+Set as : "Bill Ref"
+Width : 16
+
+[Field: MSMEHAmt]
+Set as : "Payable (₹)"
+Width : 16
+Align : Right
+
+[Field: MSMEHAge]
+Set as : "Age (Days)"
+Width : 12
+Align : Right
+
+[Field: MSMEHStatus]
+Set as : "43B(h) Status"
+Width : 22
+
+[Field: MSMEHInterest]
+Set as : "Interest Sec 16 (₹)"
+Width : 18
+Align : Right
+
+[Report: ScheduleIIIBalanceSheet]
+Form : ScheduleIIIBalanceSheetForm
+Title : "Schedule III Division I Balance Sheet"
+
+[Form: ScheduleIIIBalanceSheetForm]
+Part : ScheduleIIIBalanceSheetPart
+
+[Part: ScheduleIIIBalanceSheetPart]
+Line : S3HeaderLine
+
+[Line: S3HeaderLine]
+Field : S3Particulars, S3Note, S3CurrentYear, S3PreviousYear
+
+[Field: S3Particulars]
+Set as : "Particulars"
+Width : 45
+
+[Field: S3Note]
+Set as : "Note"
+Width : 8
+Align : Center
+
+[Field: S3CurrentYear]
+Set as : "Figures as at 31-03-2027 (₹)"
+Width : 25
+Align : Right
+
+[Field: S3PreviousYear]
+Set as : "Figures as at 31-03-2026 (₹)"
+Width : 25
+Align : Right
+
+[Report: RejectionsRegister]
+Form : RejectionsRegisterForm
+Title : "Rejections In & Out Register"
+
+[Form: RejectionsRegisterForm]
+Part : RejectionsRegisterPart
+
+[Part: RejectionsRegisterPart]
+Line : RejHeaderLine
+
+[Line: RejHeaderLine]
+Field : RejHNo, RejHType, RejHParty, RejHDate, RejHOrder, RejHStatus
+
+[Field: RejHNo]
+Set as : "Rejection No"
+Width : 18
+
+[Field: RejHType]
+Set as : "Type"
+Width : 16
+
+[Field: RejHParty]
+Set as : "Party"
+Width : 24
+
+[Field: RejHDate]
+Set as : "Date"
+Width : 12
+
+[Field: RejHOrder]
+Set as : "Order Ref"
+Width : 16
+
+[Field: RejHStatus]
+Set as : "Status"
+Width : 18
+
+
+

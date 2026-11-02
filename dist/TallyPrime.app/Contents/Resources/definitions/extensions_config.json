@@ -1,0 +1,17 @@
+{
+  "base.tdl": {
+    "enabled": true,
+    "protected": true,
+    "description": "Core Tally System TDL Definitions"
+  },
+  "custom_extension.tdl": {
+    "enabled": true,
+    "protected": false,
+    "description": "Debtors Analysis Menu & Report Extension"
+  },
+  "ssd_analytics.tdl": {
+    "enabled": true,
+    "protected": false,
+    "description": "Realtime SSD Sales & Stock Analytics"
+  }
+}

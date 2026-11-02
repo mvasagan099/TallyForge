@@ -1,0 +1,12 @@
+;; =========================================================
+;; Fixture 04: Formulas, Conditionals, and Built-in Math
+;; =========================================================
+
+[System: Formula]
+ComputeCGST : $$Round($Amount * 0.09, 2)
+ComputeSGST : $$Round($Amount * 0.09, 2)
+ComputeTotalWithTax : $Amount + @@ComputeCGST + @@ComputeSGST
+FormatUpperCaseName : $$UpperCase($Name)
+AbsoluteVariance : $$Abs($ClosingBalance)
+IsDebtorOverLimit : If $ClosingBalance > 100000 Then "OVER LIMIT" Else "NORMAL"
+CompanyHeaderLabel : $$CurrentCompany() + " | Tax Register"

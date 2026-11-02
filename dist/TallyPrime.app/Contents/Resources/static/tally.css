@@ -1,0 +1,477 @@
+:root {
+    --tally-teal: #004d40;
+    --tally-darkteal: #002d26;
+    --tally-midteal: #00695c;
+    --tally-lightteal: #e0f2f1;
+    --tally-border: #80cbc4;
+    --tally-yellow: #fff9c4;
+    --tally-hotkey: #d32f2f;
+    --tally-active-bg: #004d40;
+    --tally-active-text: #ffffff;
+    --tally-sidebar-bg: #d0e7e5;
+    --tally-btn-border: #004d40;
+    --tally-font: "Courier New", Courier, monospace, monospace;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: var(--tally-font);
+    background-color: #f0f4f4;
+    color: #1a1a1a;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    user-select: none;
+}
+
+/* 1. TOP MENU BAR (TallyPrime Top Strip) */
+.tally-top-strip {
+    background: #003830;
+    color: #e0f2f1;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 10px;
+    font-size: 0.82rem;
+    border-bottom: 2px solid #00221d;
+}
+
+.tally-top-menu {
+    display: flex;
+    gap: 12px;
+}
+
+.top-menu-btn {
+    background: none;
+    border: none;
+    color: #e0f2f1;
+    font-family: var(--tally-font);
+    font-size: 0.82rem;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 2px;
+}
+
+.top-menu-btn:hover {
+    background: #005a4e;
+    color: #fff;
+}
+
+.top-menu-btn .underline {
+    text-decoration: underline;
+    font-weight: bold;
+    color: #ffca28;
+}
+
+.goto-search-box {
+    display: flex;
+    align-items: center;
+    background: #002621;
+    border: 1px solid #00796b;
+    border-radius: 3px;
+    padding: 2px 8px;
+    gap: 6px;
+}
+
+.goto-search-box input {
+    background: none;
+    border: none;
+    color: #fff;
+    font-family: var(--tally-font);
+    font-size: 0.82rem;
+    width: 140px;
+}
+
+.goto-search-box input:focus {
+    outline: none;
+    width: 200px;
+}
+
+/* 2. MAIN WORKING SPLIT LAYOUT */
+.tally-main-viewport {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+    position: relative;
+}
+
+/* LEFT HALF: Company Information & Period */
+.tally-info-pane {
+    width: 42%;
+    background: #e4efee;
+    border-right: 2px solid #b2dfdb;
+    display: flex;
+    flex-direction: column;
+    padding: 10px 14px;
+    gap: 10px;
+    font-size: 0.85rem;
+}
+
+.info-box-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.info-card {
+    background: #ffffff;
+    border: 1px solid #80cbc4;
+    padding: 8px 10px;
+    box-shadow: 1px 1px 3px rgba(0,0,0,0.06);
+}
+
+.info-card-header {
+    font-size: 0.75rem;
+    font-weight: bold;
+    color: #004d40;
+    border-bottom: 1px dashed #b2dfdb;
+    padding-bottom: 3px;
+    margin-bottom: 5px;
+    letter-spacing: 0.5px;
+}
+
+.info-card-value {
+    font-weight: bold;
+    font-size: 0.9rem;
+    color: #111;
+}
+
+.company-list-card {
+    background: #ffffff;
+    border: 1px solid #80cbc4;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 1px 1px 3px rgba(0,0,0,0.06);
+}
+
+.company-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+.company-table th {
+    background: #c8e6c9;
+    border-bottom: 1px solid #81c784;
+    padding: 6px 8px;
+    text-align: left;
+    font-size: 0.78rem;
+    color: #1b5e20;
+}
+
+.company-table td {
+    padding: 8px 8px;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.company-table tr.selected {
+    background: #e8f5e9;
+    font-weight: bold;
+}
+
+/* RIGHT HALF: Gateway of Tally Center Container */
+.tally-center-workplace {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: radial-gradient(circle at center, #ffffff 0%, #edf5f4 100%);
+    padding: 15px;
+    position: relative;
+    overflow-y: auto;
+}
+
+/* Gateway of Tally Dialog Box */
+.gateway-box {
+    width: 440px;
+    background: #ffffff;
+    border: 2px solid var(--tally-teal);
+    box-shadow: 6px 6px 18px rgba(0, 0, 0, 0.22);
+}
+
+.gateway-box-header {
+    background: var(--tally-teal);
+    color: #ffffff;
+    padding: 8px 12px;
+    font-weight: bold;
+    text-align: center;
+    font-size: 1.05rem;
+    letter-spacing: 0.8px;
+}
+
+.gateway-section-title {
+    background: #e0f2f1;
+    color: #004d40;
+    font-size: 0.75rem;
+    font-weight: bold;
+    padding: 4px 15px;
+    text-align: center;
+    border-top: 1px solid #b2dfdb;
+    border-bottom: 1px solid #b2dfdb;
+    letter-spacing: 0.8px;
+}
+
+.gateway-menu-list {
+    list-style: none;
+    padding: 4px 0;
+}
+
+.gateway-menu-item {
+    padding: 5px 24px;
+    cursor: pointer;
+    font-size: 0.95rem;
+    display: flex;
+    justify-content: space-between;
+    transition: all 0.05s;
+}
+
+.gateway-menu-item.active {
+    background: var(--tally-teal);
+    color: #ffffff;
+}
+
+.gateway-menu-item.active .hotkey {
+    color: #ffeb3b !important;
+}
+
+.hotkey {
+    color: var(--tally-hotkey);
+    font-weight: bold;
+    text-decoration: underline;
+}
+
+/* 3. RIGHT SIDEBAR BUTTONS (Sticky F-Key Bar) */
+.tally-fkey-sidebar {
+    width: 140px;
+    background: var(--tally-sidebar-bg);
+    border-left: 2px solid #b2dfdb;
+    display: flex;
+    flex-direction: column;
+    padding: 6px 4px;
+    gap: 3px;
+    overflow-y: auto;
+}
+
+.fkey-btn {
+    font-family: var(--tally-font);
+    font-size: 0.76rem;
+    background: #fdfefe;
+    border: 1px solid var(--tally-teal);
+    padding: 6px 5px;
+    text-align: left;
+    cursor: pointer;
+    font-weight: bold;
+    color: #004d40;
+    display: flex;
+    align-items: center;
+}
+
+.fkey-btn:hover, .fkey-btn:focus {
+    background: var(--tally-yellow);
+    border-color: #b78103;
+    outline: none;
+}
+
+.fkey-label {
+    width: 32px;
+    color: #c62828;
+    font-weight: bold;
+}
+
+/* 4. SCREENS: REPORT VIEW */
+.tally-screen-container {
+    width: 100%;
+    height: 100%;
+    background: #ffffff;
+    border: 2px solid var(--tally-teal);
+    display: flex;
+    flex-direction: column;
+    box-shadow: 4px 4px 16px rgba(0,0,0,0.18);
+}
+
+.screen-header-bar {
+    background: var(--tally-teal);
+    color: #ffffff;
+    padding: 8px 14px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.screen-content-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px;
+}
+
+.tally-data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.88rem;
+}
+
+.tally-data-table th {
+    background: #e0f2f1;
+    border-top: 1px solid #004d40;
+    border-bottom: 2px solid #004d40;
+    padding: 6px 8px;
+    font-weight: bold;
+    color: #004d40;
+}
+
+.tally-data-table td {
+    padding: 5px 8px;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.tally-data-table tr:hover {
+    background: #fffde7;
+}
+
+.tally-data-table tr.total-row {
+    font-weight: bold;
+    background: #eef7f6;
+    border-top: 2px solid #004d40;
+    border-bottom: 2px solid #004d40;
+}
+
+/* 5. VOUCHER ENTRY FORM */
+.voucher-form-container {
+    padding: 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.voucher-meta-row {
+    display: flex;
+    gap: 20px;
+    background: #e0f2f1;
+    padding: 8px 12px;
+    border: 1px solid #b2dfdb;
+}
+
+.voucher-field-group {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-bottom: 8px;
+}
+
+.voucher-field-group label {
+    font-size: 0.82rem;
+    font-weight: bold;
+    color: #004d40;
+}
+
+.tally-input {
+    font-family: var(--tally-font);
+    font-size: 0.9rem;
+    padding: 5px 8px;
+    border: 1px solid #80cbc4;
+    background: #ffffff;
+}
+
+.tally-input:focus {
+    border-color: #004d40;
+    background: #fffde7;
+    outline: none;
+}
+
+/* 6. BOTTOM CALCULATOR PANEL (Ctrl+N / Ctrl+M) */
+.tally-calculator-drawer {
+    background: #002d26;
+    color: #80cbc4;
+    border-top: 2px solid #00796b;
+    padding: 8px 14px;
+    display: none;
+    flex-direction: column;
+    gap: 6px;
+    box-shadow: 0 -3px 8px rgba(0,0,0,0.25);
+}
+
+.calc-header {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.78rem;
+    color: #ffeb3b;
+    font-weight: bold;
+}
+
+.calc-io-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.calc-input {
+    flex: 1;
+    background: #001f1a;
+    border: 1px solid #00796b;
+    color: #ffffff;
+    font-family: var(--tally-font);
+    font-size: 1rem;
+    padding: 4px 10px;
+}
+
+.calc-input:focus {
+    outline: none;
+    border-color: #80cbc4;
+}
+
+.calc-history {
+    max-height: 50px;
+    overflow-y: auto;
+    font-size: 0.82rem;
+    color: #b2dfdb;
+}
+
+/* 7. BOTTOM APP STATUS BAR */
+.tally-bottom-status-bar {
+    background: var(--tally-darkteal);
+    color: #ffffff;
+    padding: 4px 14px;
+    font-size: 0.78rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* Alt+G Go To Modal */
+.modal-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.5);
+    display: none;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.modal-dialog {
+    width: 480px;
+    background: #fff;
+    border: 2px solid var(--tally-teal);
+    box-shadow: 6px 6px 20px rgba(0,0,0,0.3);
+}
+
+.btn-tally-primary {
+    background: var(--tally-teal);
+    color: #fff;
+    border: none;
+    padding: 5px 14px;
+    font-family: var(--tally-font);
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.btn-tally-primary:hover {
+    background: #00332c;
+}

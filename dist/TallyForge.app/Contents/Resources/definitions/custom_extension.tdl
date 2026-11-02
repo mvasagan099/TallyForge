@@ -1,0 +1,55 @@
+;; =========================================================
+;; Example TDL Extension: Extending Gateway of Tally
+;; =========================================================
+
+[#Menu: Gateway of Tally]
+Add : Item : "Sundry Debtors Analysis" : Display : DebtorsReport
+
+[Report: DebtorsReport]
+Title : "Sundry Debtors Outstanding"
+Form : DebtorsForm
+
+[Form: DebtorsForm]
+Part : DebtorsPart
+
+[Part: DebtorsPart]
+Line : DebtorsHeaderLine, DebtorsDetailLine
+Repeat : DebtorsDetailLine : DebtorsCollection
+
+[Line: DebtorsHeaderLine]
+Field : DHParty, DHGroup, DHBalance
+
+[Field: DHParty]
+Set as : "Customer / Debtor Name"
+Width : 40
+
+[Field: DHGroup]
+Set as : "Category"
+Width : 25
+
+[Field: DHBalance]
+Set as : "Outstanding (₹)"
+Width : 20
+Align : Right
+
+[Line: DebtorsDetailLine]
+Field : DDPartyName, DDGroup, DDBalance
+
+[Field: DDPartyName]
+Use : Name Field
+Set as : $Name
+Width : 40
+
+[Field: DDGroup]
+Set as : $GroupName
+Width : 25
+
+[Field: DDBalance]
+Use : Amount Field
+Set as : $ClosingBalance
+Width : 20
+Align : Right
+
+[Collection: DebtorsCollection]
+Type : Ledger
+ChildOf : "Sundry Debtors"

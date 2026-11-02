@@ -1,0 +1,14 @@
+;; =========================================================
+;; Fixture 08: Multiple Extensions & Conflict Isolation
+;; =========================================================
+
+[Report: ConflictTestReport]
+Title : "Original Definition"
+Form : ConflictTestForm
+
+[#Report: ConflictTestReport]
+Title : "Overridden by Extension A"
+
+[!Report: ConflictTestReport]
+Title : "Replaced Completely by Extension B"
+Form : ConflictTestFormB

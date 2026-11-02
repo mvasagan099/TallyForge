@@ -1,0 +1,51 @@
+;; =========================================================
+;; Fixture 06: Custom Tax Invoice Printing Layout
+;; =========================================================
+
+[Report: CustomInvoicePrint]
+Title : "Tax Invoice Formal Print Preview"
+Form : CustomInvoiceForm
+
+[Form: CustomInvoiceForm]
+Part : InvHeaderPart, InvBodyPart, InvTaxSummaryPart, InvSignPart
+
+[Part: InvHeaderPart]
+Line : InvSellerLine, InvBuyerLine
+
+[Line: InvSellerLine]
+Field : InvSellerName, InvSellerGSTIN
+
+[Field: InvSellerName]
+Set as : $$CurrentCompany()
+Width : 45
+
+[Field: InvSellerGSTIN]
+Set as : "GSTIN: " + $CompanyGSTIN
+Width : 25
+
+[Part: InvBodyPart]
+Line : InvItemHeaderLine, InvItemRowLine
+Repeat : InvItemRowLine : InvoiceItemsCollection
+
+[Line: InvItemRowLine]
+Field : InvItemDesc, InvItemHSN, InvItemQty, InvItemRate, InvItemTotal
+
+[Field: InvItemDesc]
+Set as : $ItemName
+Width : 35
+
+[Field: InvItemHSN]
+Set as : $HSN
+Width : 12
+
+[Field: InvItemQty]
+Set as : $Quantity
+Width : 10
+
+[Field: InvItemRate]
+Set as : $Rate
+Width : 12
+
+[Field: InvItemTotal]
+Set as : $TotalAmount
+Width : 15

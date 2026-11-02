@@ -1,0 +1,8 @@
+;; =========================================================
+;; Fixture 01: Menu Overrides & Modifier Actions
+;; =========================================================
+
+[#Menu: Gateway of Tally]
+Add : Item : "Branch Consolidation" : Display : BranchReport
+Add : Item : "Executive Dashboard" : Display : ExecDashboard
+Delete : Item : "Ratio Analysis"

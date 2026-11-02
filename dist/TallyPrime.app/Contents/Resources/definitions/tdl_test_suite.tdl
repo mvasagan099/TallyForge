@@ -1,0 +1,58 @@
+;; ============================================================================
+;; TDL LABORATORY TEST SUITE & COMPATIBILITY VALIDATION SCRIPT
+;; Demonstrates custom reports, UDFs, formula definitions, # modifiers, and collections
+;; ============================================================================
+
+[System: Formula]
+GSTMultiplier : 1.18
+StandardDiscount : 5.0
+
+[Report: CustomExecutiveDashboard]
+Form : CustomDashboardForm
+Title : "Executive Financial Dashboard"
+
+[Form: CustomDashboardForm]
+Part : CustomDashboardPart
+
+[Part: CustomDashboardPart]
+Line : DashHeaderLine, DashMetricsLine
+
+[Line: DashHeaderLine]
+Field : DashHTitle, DashHPeriod
+
+[Field: DashHTitle]
+Set as : "EXECUTIVE KPIS & REAL-TIME FINANCIAL SUMMARY"
+Width : 60
+
+[Field: DashHPeriod]
+Set as : "FY 2026-2027"
+Width : 40
+Align : Right
+
+[Line: DashMetricsLine]
+Field : DashMetricSales, DashMetricProfit
+
+[Field: DashMetricSales]
+Set as : "Total Revenue from Operations"
+Width : 50
+
+[Field: DashMetricProfit]
+Set as : "Operating Net Surplus"
+Width : 50
+Align : Right
+
+;; User Defined Field (UDF) Configuration
+[UDF: PriorityLevel]
+Type : String
+Title : "Customer Priority Rating"
+
+[UDF: DeliveryPincode]
+Type : Number
+Title : "Consignment Delivery Pincode"
+
+;; Definition Override with # Modifier
+[#Report: BalanceSheet]
+Title : "Balance Sheet (Audited & Closed)"
+
+[#Field: BSHAssets]
+Set as : "ASSETS & CAPITAL RESOURCES (₹)"
