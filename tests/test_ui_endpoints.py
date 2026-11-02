@@ -22,28 +22,47 @@ import time
 from http.server import HTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from server import TallyRequestHandler
+from server import TallyRequestHandler, DefaultHTTPServer
 from engine.accounting_db import EnterpriseAccountingDB
 
 class TestUIEndpoints(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        # Start server on dynamic loopback port
-        cls.port = 8891
-        cls.server = HTTPServer(("127.0.0.1", cls.port), TallyRequestHandler)
+        import socket
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("127.0.0.1", 0))
+            cls.port = s.getsockname()[1]
+
+        cls.test_db_path = f"test_ui_{int(time.time()*1000)%100000}.db"
+        cls.db = EnterpriseAccountingDB(cls.test_db_path)
+        import server
+        cls.orig_db = server.db
+        server.db = cls.db
+
+        cls.server = DefaultHTTPServer(("127.0.0.1", cls.port), TallyRequestHandler)
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
-        time.sleep(0.3)
+        time.sleep(0.2)
 
     @classmethod
     def tearDownClass(cls):
         cls.server.shutdown()
         cls.server.server_close()
+        import server
+        server.db = cls.orig_db
+        cls.db.close()
+        for ext in ["", "-wal", "-shm"]:
+            f = cls.test_db_path + ext
+            if os.path.exists(f):
+                try:
+                    os.remove(f)
+                except Exception:
+                    pass
 
     def _get(self, path, token=None):
         url = f"http://127.0.0.1:{self.port}{path}"
-        headers = {}
+        headers = {"Connection": "close"}
         if token:
             headers["Authorization"] = f"Bearer {token}"
         req = urllib.request.Request(url, headers=headers)
@@ -58,7 +77,7 @@ class TestUIEndpoints(unittest.TestCase):
     def _post(self, path, payload, token=None):
         url = f"http://127.0.0.1:{self.port}{path}"
         body = json.dumps(payload).encode("utf-8")
-        headers = {"Content-Type": "application/json"}
+        headers = {"Content-Type": "application/json", "Connection": "close"}
         if token:
             headers["Authorization"] = f"Bearer {token}"
         req = urllib.request.Request(url, data=body, headers=headers)
@@ -206,8 +225,7 @@ class TestUIEndpoints(unittest.TestCase):
 
     def test_19_rbac_unauthorized_post_blocked(self):
         # Create an auditor session (read-only)
-        db = EnterpriseAccountingDB("tally_data.db")
-        auditor_token = db.create_session({"id": 3, "username": "auditor", "role": "Auditor"})
+        auditor_token = self.db.create_session({"id": 3, "username": "auditor", "role": "Auditor"})
 
         # Auditor trying to post a voucher must be rejected with 403 Forbidden
         status, res = self._post("/api/vouchers", {

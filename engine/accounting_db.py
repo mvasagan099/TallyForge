@@ -76,8 +76,9 @@ class EnterpriseAccountingDB:
     def __init__(self, db_path: str = "tally_data.db"):
         self.db_path = db_path
         self.active_company_id: int = 1
-        self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        self.conn = sqlite3.connect(self.db_path, timeout=60.0, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
+        self.conn.execute("PRAGMA busy_timeout = 60000;")
         self.conn.execute("PRAGMA journal_mode = WAL;")
         self.conn.execute("PRAGMA synchronous = NORMAL;")
         self.conn.execute("PRAGMA foreign_keys = ON;")

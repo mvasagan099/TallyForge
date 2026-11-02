@@ -90,71 +90,73 @@
             <div class="gateway-box" id="gateway-box">
                 <div class="gateway-box-header">Gateway of Tally</div>
                 
-                <div class="gateway-section-title">MASTERS</div>
-                <ul class="gateway-menu-list">
-                    <li class="gateway-menu-item active" data-action="Masters" data-target="create"><span><span class="hotkey">C</span>reate</span></li>
-                    <li class="gateway-menu-item" data-action="Masters" data-target="alter"><span><span class="hotkey">A</span>lter</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="AccountsInfo"><span>Chart of <span class="hotkey">H</span>ocounts</span></li>
-                </ul>
+                <div class="gateway-menu-scrollable" id="gateway-menu-scrollable">
+                    <div class="gateway-section-title">MASTERS</div>
+                    <ul class="gateway-menu-list">
+                        <li class="gateway-menu-item active" data-action="Masters" data-target="create"><span><span class="hotkey">C</span>reate</span></li>
+                        <li class="gateway-menu-item" data-action="Masters" data-target="alter"><span><span class="hotkey">A</span>lter</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="AccountsInfo"><span>C<span class="hotkey">h</span>art of Accounts</span></li>
+                    </ul>
 
-                <div class="gateway-section-title">TRANSACTIONS</div>
-                <ul class="gateway-menu-list">
-                    <li class="gateway-menu-item" data-action="Vouchers" data-target="VoucherEntry"><span><span class="hotkey">V</span>ouchers</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="DayBook"><span><span class="hotkey">D</span>ay Book</span></li>
-                </ul>
+                    <div class="gateway-section-title">TRANSACTIONS</div>
+                    <ul class="gateway-menu-list">
+                        <li class="gateway-menu-item" data-action="Vouchers" data-target="VoucherEntry"><span><span class="hotkey">V</span>ouchers</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="DayBook"><span><span class="hotkey">D</span>ay Book</span></li>
+                    </ul>
 
-                <div class="gateway-section-title">UTILITIES & STATUTORY</div>
-                <ul class="gateway-menu-list">
-                    <li class="gateway-menu-item" data-action="Display" data-target="BankReconciliation"><span><span class="hotkey">B</span>anking & BRS</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="GSTR1"><span>GST<span class="hotkey">R</span>-1 Outward Return</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="GSTR3B"><span>GSTR-<span class="hotkey">3</span>B Monthly Return</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="PayrollSummary"><span>Pa<span class="hotkey">y</span>roll Pay Sheet</span></li>
-                </ul>
+                    <div class="gateway-section-title">UTILITIES & STATUTORY</div>
+                    <ul class="gateway-menu-list">
+                        <li class="gateway-menu-item" data-action="Display" data-target="BankReconciliation"><span><span class="hotkey">B</span>anking & BRS</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="GSTR1"><span>GST<span class="hotkey">R</span>-1 Outward Return</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="GSTR3B"><span>GSTR-<span class="hotkey">3</span>B Monthly Return</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="PayrollSummary"><span>Pa<span class="hotkey">y</span>roll Pay Sheet</span></li>
+                    </ul>
 
-                <div class="gateway-section-title">REPORTS</div>
-                <ul class="gateway-menu-list">
-                    <li class="gateway-menu-item" data-action="Display" data-target="BalanceSheet"><span>Balance <span class="hotkey">S</span>heet</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="ProfitAndLoss"><span><span class="hotkey">P</span>rofit & Loss A/c</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="StockSummary"><span>Stoc<span class="hotkey">k</span> Summary</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="OutstandingReceivables"><span>Bills <span class="hotkey">O</span>utstanding (Receivables)</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="OutstandingPayables"><span>Bills Pa<span class="hotkey">y</span>able (Ageing)</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="GeneralLedger"><span>General <span class="hotkey">L</span>edger Statement</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="CashFlow"><span>Cash <span class="hotkey">F</span>low Statement</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="FundsFlow"><span><span class="hotkey">U</span>unds Flow Statement</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="BudgetVariance"><span>Budget <span class="hotkey">V</span>ariance Analysis</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="InventoryAgeing"><span>Inventory Agein<span class="hotkey">g</span></span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="GSTR9"><span>GSTR-<span class="hotkey">9</span> Annual Return</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="ConsolidatedFinancials"><span>Consolidated <span class="hotkey">G</span>roup</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="TdsRegister"><span>TD<span class="hotkey">S</span> Withholding Register</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="ChequeRegister"><span>Che<span class="hotkey">q</span>ue Register & Books</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="MfgCost"><span>Manufacturing Cos<span class="hotkey">t</span></span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="CostCentres"><span><span class="hotkey">C</span>ost Centres Breakdown</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="RatioAnalysis"><span>Ratio Ana<span class="hotkey">l</span>ysis</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="AuditEditLog"><span>Statutory Audit (<span class="hotkey">E</span>dit Log)</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="TrialBalance"><span><span class="hotkey">T</span>rial Balance</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="FixedAssets"><span>Fixed <span class="hotkey">A</span>ssets & Depreciation</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="OrderTracking"><span>Sales & <span class="hotkey">P</span>urchase Orders</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="GSTR2BRecon"><span>GSTR-2<span class="hotkey">B</span> ITC Reconciliation</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="LandedCost"><span><span class="hotkey">L</span>anded Cost Allocation</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="POSBilling"><span>Point of Sale (<span class="hotkey">P</span>OS)</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="ForexRevaluation"><span><span class="hotkey">F</span>orex Revaluation Statement</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="Challans"><span>Delivery & Receipt C<span class="hotkey">h</span>allans</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="TCSRegister"><span><span class="hotkey">T</span>CS Tax Collected at Source</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="JobWorkRegister"><span><span class="hotkey">J</span>ob Work & Subcontracting</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="QualityInspection"><span>Quality Control & <span class="hotkey">I</span>nspection</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="CurrencyExchange"><span>Multi-Currency <span class="hotkey">R</span>ates</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="PaymentRecon"><span>Payment <span class="hotkey">S</span>ettlement Reconciliation</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="AuditDiff"><span>MCA <span class="hotkey">D</span>iff Viewer (Audit Trail)</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="MSMECompliance"><span><span class="hotkey">M</span>SME 45-Day Compliance</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="ScheduleIIIBalanceSheet"><span>Schedule <span class="hotkey">I</span>II Balance Sheet</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="RejectionsRegister"><span>Rejections In & <span class="hotkey">O</span>ut Register</span></li>
-                    <li class="gateway-menu-item" data-action="Display" data-target="TDLStudio"><span>TDL <span class="hotkey">M</span>tudio (Live Code)</span></li>
-                </ul>
+                    <div class="gateway-section-title">REPORTS</div>
+                    <ul class="gateway-menu-list">
+                        <li class="gateway-menu-item" data-action="Display" data-target="BalanceSheet"><span>Balance <span class="hotkey">S</span>heet</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="ProfitAndLoss"><span><span class="hotkey">P</span>rofit & Loss A/c</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="StockSummary"><span>Stoc<span class="hotkey">k</span> Summary</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="OutstandingReceivables"><span>Bills <span class="hotkey">O</span>utstanding (Receivables)</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="OutstandingPayables"><span>Bills Pa<span class="hotkey">y</span>able (Ageing)</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="GeneralLedger"><span>General <span class="hotkey">L</span>edger Statement</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="CashFlow"><span>Cash <span class="hotkey">F</span>low Statement</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="FundsFlow"><span><span class="hotkey">U</span>unds Flow Statement</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="BudgetVariance"><span>Budget <span class="hotkey">V</span>ariance Analysis</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="InventoryAgeing"><span>Inventory Agein<span class="hotkey">g</span></span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="GSTR9"><span>GSTR-<span class="hotkey">9</span> Annual Return</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="ConsolidatedFinancials"><span>Consolidated <span class="hotkey">G</span>roup</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="TdsRegister"><span>TD<span class="hotkey">S</span> Withholding Register</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="ChequeRegister"><span>Che<span class="hotkey">q</span>ue Register & Books</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="MfgCost"><span>Manufacturing Cos<span class="hotkey">t</span></span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="CostCentres"><span><span class="hotkey">C</span>ost Centres Breakdown</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="RatioAnalysis"><span>Ratio Ana<span class="hotkey">l</span>ysis</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="AuditEditLog"><span>Statutory Audit (<span class="hotkey">E</span>dit Log)</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="TrialBalance"><span><span class="hotkey">T</span>rial Balance</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="FixedAssets"><span>Fixed <span class="hotkey">A</span>ssets & Depreciation</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="OrderTracking"><span>Sales & <span class="hotkey">P</span>urchase Orders</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="GSTR2BRecon"><span>GSTR-2<span class="hotkey">B</span> ITC Reconciliation</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="LandedCost"><span><span class="hotkey">L</span>anded Cost Allocation</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="POSBilling"><span>Point of Sale (<span class="hotkey">P</span>OS)</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="ForexRevaluation"><span><span class="hotkey">F</span>orex Revaluation Statement</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="Challans"><span>Delivery & Receipt C<span class="hotkey">h</span>allans</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="TCSRegister"><span><span class="hotkey">T</span>CS Tax Collected at Source</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="JobWorkRegister"><span><span class="hotkey">J</span>ob Work & Subcontracting</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="QualityInspection"><span>Quality Control & <span class="hotkey">I</span>nspection</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="CurrencyExchange"><span>Multi-Currency <span class="hotkey">R</span>ates</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="PaymentRecon"><span>Payment <span class="hotkey">S</span>ettlement Reconciliation</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="AuditDiff"><span>MCA <span class="hotkey">D</span>iff Viewer (Audit Trail)</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="MSMECompliance"><span><span class="hotkey">M</span>SME 45-Day Compliance</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="ScheduleIIIBalanceSheet"><span>Schedule <span class="hotkey">I</span>II Balance Sheet</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="RejectionsRegister"><span>Rejections In & <span class="hotkey">O</span>ut Register</span></li>
+                        <li class="gateway-menu-item" data-action="Display" data-target="TDLStudio"><span>TDL <span class="hotkey">M</span>tudio (Live Code)</span></li>
+                    </ul>
 
-                <div class="gateway-section-title">QUIT</div>
-                <ul class="gateway-menu-list">
-                    <li class="gateway-menu-item" data-action="Quit" data-target="Quit"><span><span class="hotkey">Q</span>uit</span></li>
-                </ul>
+                    <div class="gateway-section-title">QUIT</div>
+                    <ul class="gateway-menu-list">
+                        <li class="gateway-menu-item" data-action="Quit" data-target="Quit"><span><span class="hotkey">Q</span>uit</span></li>
+                    </ul>
+                </div>
             </div>
 
             <!-- SCREEN 2: TDL Report Screen Container -->

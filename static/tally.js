@@ -87,6 +87,11 @@ function initGatewayItems() {
             executeGatewayItem(item);
         });
     });
+
+    const scrollContainer = document.getElementById("gateway-menu-scrollable");
+    if (scrollContainer) {
+        scrollContainer.scrollTop = 0;
+    }
 }
 
 function selectGatewayItem(index) {
@@ -97,7 +102,7 @@ function selectGatewayItem(index) {
     state.gatewayItems.forEach((item, idx) => {
         if (idx === index) {
             item.classList.add("active");
-            item.scrollIntoView({ block: "nearest" });
+            item.scrollIntoView({ block: "nearest", behavior: "smooth" });
         } else {
             item.classList.remove("active");
         }
@@ -204,6 +209,18 @@ function setupKeyboardListeners() {
             } else if (e.key === "Enter") {
                 e.preventDefault();
                 executeGatewayItem(state.gatewayItems[state.selectedMenuIndex]);
+            } else if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                const pressedKey = e.key.toUpperCase();
+                for (let i = 0; i < state.gatewayItems.length; i++) {
+                    const item = state.gatewayItems[i];
+                    const hk = item.querySelector(".hotkey");
+                    if (hk && hk.textContent.trim().toUpperCase() === pressedKey) {
+                        e.preventDefault();
+                        selectGatewayItem(i);
+                        executeGatewayItem(item);
+                        break;
+                    }
+                }
             }
         }
     });
@@ -211,12 +228,23 @@ function setupKeyboardListeners() {
 
 function goBackToGateway() {
     state.currentScreen = "gateway";
-    document.getElementById("gateway-box").style.display = "block";
+    const gwBox = document.getElementById("gateway-box");
+    if (gwBox) {
+        gwBox.style.display = "flex";
+    }
     document.getElementById("report-screen").style.display = "none";
     document.getElementById("voucher-screen").style.display = "none";
     document.getElementById("masters-screen").style.display = "none";
     document.getElementById("tdl-studio-screen").style.display = "none";
     document.getElementById("breadcrumb").textContent = "Gateway of Tally";
+
+    const activeItem = document.querySelector(".gateway-menu-item.active");
+    if (activeItem) {
+        activeItem.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    } else {
+        const scrollContainer = document.getElementById("gateway-menu-scrollable");
+        if (scrollContainer) scrollContainer.scrollTop = 0;
+    }
 }
 
 // -------------------------------------------------------------------------

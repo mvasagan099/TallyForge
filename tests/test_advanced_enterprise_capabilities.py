@@ -24,13 +24,16 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from engine.accounting_db import EnterpriseAccountingDB
 from engine.tdl_parser import TDLParser, TDLSymbolTable
 from engine.runtime import TDLRuntime
-from server import TallyRequestHandler
+from server import TallyRequestHandler, DefaultHTTPServer
 
 class TestAdvancedEnterpriseCapabilities(unittest.TestCase):
 
     def setUp(self):
         self.db_path = f"test_adv_{int(time.time() * 1000) % 1000000}.db"
         self.db = EnterpriseAccountingDB(self.db_path)
+        import server
+        self.orig_server_db = server.db
+        server.db = self.db
         self.symbols = TDLSymbolTable()
         self.parser = TDLParser(self.symbols)
         base_tdl = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "definitions", "base.tdl")
@@ -39,6 +42,9 @@ class TestAdvancedEnterpriseCapabilities(unittest.TestCase):
         self.runtime = TDLRuntime(self.symbols, self.db)
 
     def tearDown(self):
+        import server
+        if hasattr(self, "orig_server_db"):
+            server.db = self.orig_server_db
         self.db.close()
         for ext in ["", "-wal", "-shm"]:
             f = self.db_path + ext
@@ -274,7 +280,7 @@ class TestAdvancedEnterpriseCapabilities(unittest.TestCase):
     def test_07_rest_api_endpoints_integration(self):
         """Verifies HTTP endpoints for all 5 new modules over local loopback."""
         port = 8893
-        server = HTTPServer(("127.0.0.1", port), TallyRequestHandler)
+        server = DefaultHTTPServer(("127.0.0.1", port), TallyRequestHandler)
         t = threading.Thread(target=server.serve_forever, daemon=True)
         t.start()
         time.sleep(0.3)
@@ -396,6 +402,7 @@ class TestAdvancedEnterpriseCapabilities(unittest.TestCase):
 
         finally:
             server.shutdown()
+            server.server_close()
             server.server_close()
 
     def test_08_company_multiple_addresses(self):
@@ -621,7 +628,7 @@ class TestAdvancedEnterpriseCapabilities(unittest.TestCase):
 
         # 3. Test API integration over HTTP
         port = 8894
-        server = HTTPServer(("127.0.0.1", port), TallyRequestHandler)
+        server = DefaultHTTPServer(("127.0.0.1", port), TallyRequestHandler)
         t = threading.Thread(target=server.serve_forever, daemon=True)
         t.start()
         time.sleep(0.3)
@@ -644,6 +651,7 @@ class TestAdvancedEnterpriseCapabilities(unittest.TestCase):
                 self.assertIn("<ENVELOPE>", xml_out)
         finally:
             server.shutdown()
+            server.server_close()
 
 if __name__ == "__main__":
     unittest.main()
