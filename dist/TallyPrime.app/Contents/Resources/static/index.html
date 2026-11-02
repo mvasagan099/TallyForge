@@ -1,186 +1,520 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TallyForge — Reverse Engineered. Rebuilt. Reimagined.</title>
     <link rel="stylesheet" href="/static/tally.css">
 </head>
-<body>
+<body class="tf-app-shell">
 
-    <!-- 1. Top Strip Menu (Classic Tally Strip) -->
-    <header class="tally-top-strip">
-        <div style="font-weight: bold; font-size: 0.95rem; color: #ffeb3b; letter-spacing: 0.5px;">
-            TallyForge <span style="font-size: 0.75rem; color: #80cbc4; font-weight: normal;">| Reverse Engineered. Rebuilt. Reimagined.</span>
+    <!-- 1. STICKY MODERN TOP BAR -->
+    <header class="tally-top-strip tf-topbar">
+        <div class="tf-brand-cluster">
+            <div class="tf-brand-logo" onclick="openDashboard()">
+                <div class="tf-brand-icon">T</div>
+                <span>TallyForge</span>
+            </div>
+            <span class="tf-tagline-badge">Reverse Engineered. Rebuilt. Reimagined.</span>
+
+            <div class="tf-top-pills">
+                <!-- Active Company Selector (Preserves #side-company-name for automated tests) -->
+                <button class="tf-company-pill" onclick="openCompanyModal()" title="Switch Active Company (F3)">
+                    <span style="color:var(--accent-primary);">🏢</span>
+                    <span id="side-company-name">Demo Enterprise Ltd.</span>
+                    <span style="font-size:0.7rem; color:var(--text-muted); margin-left:2px;">▾</span>
+                </button>
+                <span class="tf-fy-badge" id="current-fy-badge">FY 2026-27</span>
+                <span id="side-company-gstin" style="display:none;">GSTIN: 29AABCT1332L1Z5</span>
+            </div>
         </div>
+
+        <!-- Global Search & Command Palette Trigger (Cmd+K / Ctrl+K / Alt+G) -->
+        <div class="goto-search-box tf-search-trigger" onclick="openCommandPalette()">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text-muted); flex-shrink:0;">
+                <circle cx="11" cy="11" r="8"></circle>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <input type="text" id="quick-search" placeholder="Search actions, reports, vouchers..." readonly>
+            <span class="tf-kbd-pill">⌘K</span>
+        </div>
+
+        <!-- Classic Tally Strip Navigation (Preserved for backward compatibility & keyboard triggers) -->
         <nav class="tally-top-menu">
             <button class="top-menu-btn" onclick="openCompanyModal()"><span class="underline">K</span>: Company</button>
             <button class="top-menu-btn" onclick="openDataModal()"><span class="underline">Y</span>: Data</button>
             <button class="top-menu-btn" onclick="openExchangeModal()"><span class="underline">Z</span>: Exchange</button>
-            <button class="top-menu-btn" onclick="openGoToModal()"><span class="underline">G</span>: Go To</button>
+            <button class="top-menu-btn" onclick="openCommandPalette()"><span class="underline">G</span>: Go To</button>
             <button class="top-menu-btn" onclick="openImportModal()"><span class="underline">O</span>: Import</button>
             <button class="top-menu-btn" onclick="openExportModal()"><span class="underline">E</span>: Export</button>
             <button class="top-menu-btn" onclick="openPrintModal()"><span class="underline">P</span>: Print</button>
             <button class="top-menu-btn" onclick="openFeaturesModal()"><span class="underline">F11</span>: Features</button>
             <button class="top-menu-btn" onclick="openHelpModal()"><span class="underline">F1</span>: Help</button>
-            <button class="top-menu-btn" onclick="openAuthModal()" id="top-nav-user-btn"><span class="underline">U</span>: <span id="nav-user-label">Login</span></button>
-            <button class="top-menu-btn" onclick="toggleCalculator()"><span class="underline">N</span>: Calc</button>
         </nav>
-        <div class="goto-search-box">
-            <span style="color:#ffca28; font-weight:bold;">Alt+G:</span>
-            <input type="text" id="quick-search" placeholder="Type to Go To..." onfocus="openGoToModal()">
+
+        <!-- Right Side Controls: Status, Theme, Calculator, Profile -->
+        <div class="tf-top-actions">
+            <div class="tf-status-pill">
+                <span class="tf-status-dot"></span>
+                <span>100% Offline Standalone</span>
+            </div>
+
+            <!-- Theme Toggle Button (Dark / Light) -->
+            <button class="tf-icon-btn" onclick="toggleTheme()" id="theme-toggle-btn" title="Toggle Theme (Dark / Light)">
+                <span id="theme-toggle-icon">🌓</span>
+            </button>
+
+            <!-- Calculator Toggle Button -->
+            <button class="tf-icon-btn" onclick="toggleCalculator()" title="Calculator (Ctrl+N)">
+                🧮
+            </button>
+
+            <!-- User Authentication Button (Preserves #top-nav-user-btn & #nav-user-label for automated tests) -->
+            <button class="top-menu-btn" onclick="openAuthModal()" id="top-nav-user-btn" style="padding: 4px 10px;">
+                <span style="width:18px; height:18px; border-radius:50%; background:var(--accent-primary); color:#fff; display:inline-flex; align-items:center; justify-content:center; font-size:0.65rem; font-weight:bold;">U</span>
+                <span id="nav-user-label">admin</span>
+            </button>
         </div>
     </header>
 
-    <!-- 2. Main Screen Layout -->
-    <main class="tally-main-viewport">
+    <!-- 2. MAIN APPLICATION WORKSPACE ROW -->
+    <div class="tf-body-row">
 
-        <!-- Left Half: Company & Period Status Pane -->
-        <aside class="tally-info-pane">
-            <div class="info-box-grid">
-                <div class="info-card">
-                    <div class="info-card-header">CURRENT PERIOD</div>
-                    <div class="info-card-value">1-Apr-2026 to 31-Mar-2027</div>
-                </div>
-                <div class="info-card">
-                    <div class="info-card-header">CURRENT DATE</div>
-                    <div class="info-card-value" id="current-date-val">Saturday, 31 Oct 2026</div>
-                </div>
-            </div>
+        <!-- 2A. MODERN COLLAPSIBLE LEFT SIDEBAR (15 Enterprise Modules) -->
+        <aside class="tf-sidebar" id="app-sidebar">
+            <nav class="tf-sidebar-nav">
+                <div class="tf-nav-section-title">Core Operations</div>
+                <a class="tf-nav-item active" id="nav-dashboard" onclick="openDashboard()">
+                    <span class="tf-nav-icon">📊</span>
+                    <span class="tf-nav-label">Overview Dashboard</span>
+                </a>
+                <a class="tf-nav-item" id="nav-companies" onclick="openCompanyModal()">
+                    <span class="tf-nav-icon">🏢</span>
+                    <span class="tf-nav-label">Companies</span>
+                    <span class="tf-nav-badge">F3</span>
+                </a>
+                <a class="tf-nav-item" id="nav-accounting" onclick="openMasters('ledgers')">
+                    <span class="tf-nav-icon">📑</span>
+                    <span class="tf-nav-label">Accounting & Ledgers</span>
+                </a>
+                <a class="tf-nav-item" id="nav-vouchers" onclick="openVoucherEntry('Payment')">
+                    <span class="tf-nav-icon">📝</span>
+                    <span class="tf-nav-label">Voucher Entry</span>
+                    <span class="tf-nav-badge">V</span>
+                </a>
+                <a class="tf-nav-item" id="nav-inventory" onclick="openMasters('stock_items')">
+                    <span class="tf-nav-icon">📦</span>
+                    <span class="tf-nav-label">Inventory & Stock</span>
+                    <span class="tf-nav-badge">F10</span>
+                </a>
 
-            <div class="company-list-card">
-                <div style="background:#004d40; color:#fff; padding: 6px 10px; font-size:0.8rem; font-weight:bold; display:flex; justify-content:space-between;">
-                    <span>LIST OF SELECTED COMPANIES</span>
-                    <span style="color:#80cbc4; font-size:0.75rem;">F3</span>
-                </div>
-                <table class="company-table">
-                    <thead>
-                        <tr>
-                            <th>Name of Company</th>
-                            <th>Date of Last Entry</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr class="selected">
-                            <td>
-                                <strong id="side-company-name">Demo Enterprise Ltd.</strong><br>
-                                <span style="color:#666; font-size:0.72rem;" id="side-company-gstin">GSTIN: 29AABCT1332L1Z5</span>
-                            </td>
-                            <td id="last-voucher-date-val" style="color:#004d40; font-weight:bold; vertical-align:middle;">Loading...</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
+                <div class="tf-nav-section-title">Sales & Purchasing</div>
+                <a class="tf-nav-item" onclick="openVoucherEntry('Sales')">
+                    <span class="tf-nav-icon">💰</span>
+                    <span class="tf-nav-label">Sales Invoices</span>
+                    <span class="tf-nav-badge">F8</span>
+                </a>
+                <a class="tf-nav-item" onclick="openVoucherEntry('Purchase')">
+                    <span class="tf-nav-icon">🛒</span>
+                    <span class="tf-nav-label">Purchase Invoices</span>
+                    <span class="tf-nav-badge">F9</span>
+                </a>
+                <a class="tf-nav-item" onclick="openReport('OrderTracking', 'Sales & Purchase Orders')">
+                    <span class="tf-nav-icon">📋</span>
+                    <span class="tf-nav-label">Order Management</span>
+                </a>
+                <a class="tf-nav-item" onclick="openReport('Challans', 'Delivery & Receipt Challans')">
+                    <span class="tf-nav-icon">🚚</span>
+                    <span class="tf-nav-label">Delivery Challans</span>
+                </a>
 
-            <!-- Financial Metrics & Status Card -->
-            <div class="info-card" style="margin-top:auto;">
-                <div class="info-card-header">SYSTEM & STATUTORY STATUS</div>
-                <p style="font-size: 0.8rem; margin-bottom: 3px;">• Mode: <strong>100% Fully Offline</strong></p>
-                <p style="font-size: 0.8rem; margin-bottom: 3px;">• GST Engine: <strong style="color:#2e7d32;">CGST/SGST/IGST Active</strong></p>
-                <p style="font-size: 0.8rem; margin-bottom: 3px;">• Statutory Edit Log: <strong style="color:#2e7d32;">Compliant</strong></p>
-                <p style="font-size: 0.8rem; margin-bottom: 3px;">• Multi-Godown & Batch: <strong>Enabled</strong></p>
-                <p style="font-size: 0.8rem; margin-bottom: 3px;">• Double-Entry DB: <strong id="metrics-ledgers-count">14 Ledgers</strong> | <strong id="metrics-stock-count">3 Stock Items</strong></p>
+                <div class="tf-nav-section-title">Financial & Statutory</div>
+                <a class="tf-nav-item" onclick="openReport('BankReconciliation', 'Banking & BRS')">
+                    <span class="tf-nav-icon">🏦</span>
+                    <span class="tf-nav-label">Banking & BRS</span>
+                    <span class="tf-nav-badge">B</span>
+                </a>
+                <a class="tf-nav-item" onclick="openReport('GSTR1', 'GSTR-1 Outward Return')">
+                    <span class="tf-nav-icon">⚖️</span>
+                    <span class="tf-nav-label">GST & Taxation</span>
+                    <span class="tf-nav-badge">GSTR</span>
+                </a>
+                <a class="tf-nav-item" onclick="openReport('PayrollSummary', 'Payroll Pay Sheet')">
+                    <span class="tf-nav-icon">👥</span>
+                    <span class="tf-nav-label">Payroll & Employees</span>
+                </a>
+                <a class="tf-nav-item" onclick="openReport('BalanceSheet', 'Balance Sheet')">
+                    <span class="tf-nav-icon">📈</span>
+                    <span class="tf-nav-label">Financial Reports</span>
+                </a>
+                <a class="tf-nav-item" onclick="openReport('BudgetVariance', 'Budget Variance Analysis')">
+                    <span class="tf-nav-icon">🎯</span>
+                    <span class="tf-nav-label">Budgets & Variance</span>
+                </a>
+                <a class="tf-nav-item" onclick="openReport('CostCentres', 'Cost Centres Breakdown')">
+                    <span class="tf-nav-icon">🏷️</span>
+                    <span class="tf-nav-label">Cost Centres</span>
+                </a>
+
+                <div class="tf-nav-section-title">Developer & System</div>
+                <a class="tf-nav-item" onclick="openTDLStudio()">
+                    <span class="tf-nav-icon">⚡</span>
+                    <span class="tf-nav-label">TDL Studio (Live Code)</span>
+                    <span class="tf-nav-badge">F12</span>
+                </a>
+                <a class="tf-nav-item" onclick="openFeaturesModal()">
+                    <span class="tf-nav-icon">⚙️</span>
+                    <span class="tf-nav-label">Settings & Features</span>
+                    <span class="tf-nav-badge">F11</span>
+                </a>
+                <a class="tf-nav-item" onclick="openReport('AuditEditLog', 'Statutory Audit (Edit Log)')">
+                    <span class="tf-nav-icon">🛡️</span>
+                    <span class="tf-nav-label">MCA Audit Trail</span>
+                </a>
+            </nav>
+
+            <div class="tf-sidebar-footer">
+                <button class="tf-collapse-toggle" onclick="toggleSidebarCollapse()" title="Collapse Sidebar">
+                    <span id="collapse-icon">◀</span>
+                    <span class="tf-nav-label" id="collapse-text">Collapse Menu</span>
+                </button>
             </div>
         </aside>
 
-        <!-- Right Half: Gateway of Tally Center Workplace -->
-        <section class="tally-center-workplace" id="center-workplace">
+        <!-- 2B. MAIN CENTER WORKPLACE -->
+        <main class="tally-center-workplace" id="center-workplace">
 
-            <!-- SCREEN 1: Gateway of Tally (Classic Box) -->
-            <div class="gateway-box" id="gateway-box">
-                <div class="gateway-box-header">Gateway of Tally</div>
-                
-                <div class="gateway-menu-scrollable" id="gateway-menu-scrollable">
-                    <div class="gateway-section-title">MASTERS</div>
-                    <ul class="gateway-menu-list">
-                        <li class="gateway-menu-item active" data-action="Masters" data-target="create"><span><span class="hotkey">C</span>reate</span></li>
-                        <li class="gateway-menu-item" data-action="Masters" data-target="alter"><span><span class="hotkey">A</span>lter</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="AccountsInfo"><span>C<span class="hotkey">h</span>art of Accounts</span></li>
-                    </ul>
+            <!-- ===================================================================
+                 SCREEN 1: EXECUTIVE FINANCIAL OVERVIEW DASHBOARD
+                 =================================================================== -->
+            <div class="tf-dashboard-container" id="dashboard-screen">
 
-                    <div class="gateway-section-title">TRANSACTIONS</div>
-                    <ul class="gateway-menu-list">
-                        <li class="gateway-menu-item" data-action="Vouchers" data-target="VoucherEntry"><span><span class="hotkey">V</span>ouchers</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="DayBook"><span><span class="hotkey">D</span>ay Book</span></li>
-                    </ul>
-
-                    <div class="gateway-section-title">UTILITIES & STATUTORY</div>
-                    <ul class="gateway-menu-list">
-                        <li class="gateway-menu-item" data-action="Display" data-target="BankReconciliation"><span><span class="hotkey">B</span>anking & BRS</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="GSTR1"><span>GST<span class="hotkey">R</span>-1 Outward Return</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="GSTR3B"><span>GSTR-<span class="hotkey">3</span>B Monthly Return</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="PayrollSummary"><span>Pa<span class="hotkey">y</span>roll Pay Sheet</span></li>
-                    </ul>
-
-                    <div class="gateway-section-title">REPORTS</div>
-                    <ul class="gateway-menu-list">
-                        <li class="gateway-menu-item" data-action="Display" data-target="BalanceSheet"><span>Balance <span class="hotkey">S</span>heet</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="ProfitAndLoss"><span><span class="hotkey">P</span>rofit & Loss A/c</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="StockSummary"><span>Stoc<span class="hotkey">k</span> Summary</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="OutstandingReceivables"><span>Bills <span class="hotkey">O</span>utstanding (Receivables)</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="OutstandingPayables"><span>Bills Pa<span class="hotkey">y</span>able (Ageing)</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="GeneralLedger"><span>General <span class="hotkey">L</span>edger Statement</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="CashFlow"><span>Cash <span class="hotkey">F</span>low Statement</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="FundsFlow"><span><span class="hotkey">U</span>unds Flow Statement</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="BudgetVariance"><span>Budget <span class="hotkey">V</span>ariance Analysis</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="InventoryAgeing"><span>Inventory Agein<span class="hotkey">g</span></span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="GSTR9"><span>GSTR-<span class="hotkey">9</span> Annual Return</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="ConsolidatedFinancials"><span>Consolidated <span class="hotkey">G</span>roup</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="TdsRegister"><span>TD<span class="hotkey">S</span> Withholding Register</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="ChequeRegister"><span>Che<span class="hotkey">q</span>ue Register & Books</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="MfgCost"><span>Manufacturing Cos<span class="hotkey">t</span></span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="CostCentres"><span><span class="hotkey">C</span>ost Centres Breakdown</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="RatioAnalysis"><span>Ratio Ana<span class="hotkey">l</span>ysis</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="AuditEditLog"><span>Statutory Audit (<span class="hotkey">E</span>dit Log)</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="TrialBalance"><span><span class="hotkey">T</span>rial Balance</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="FixedAssets"><span>Fixed <span class="hotkey">A</span>ssets & Depreciation</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="OrderTracking"><span>Sales & <span class="hotkey">P</span>urchase Orders</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="GSTR2BRecon"><span>GSTR-2<span class="hotkey">B</span> ITC Reconciliation</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="LandedCost"><span><span class="hotkey">L</span>anded Cost Allocation</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="POSBilling"><span>Point of Sale (<span class="hotkey">P</span>OS)</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="ForexRevaluation"><span><span class="hotkey">F</span>orex Revaluation Statement</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="Challans"><span>Delivery & Receipt C<span class="hotkey">h</span>allans</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="TCSRegister"><span><span class="hotkey">T</span>CS Tax Collected at Source</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="JobWorkRegister"><span><span class="hotkey">J</span>ob Work & Subcontracting</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="QualityInspection"><span>Quality Control & <span class="hotkey">I</span>nspection</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="CurrencyExchange"><span>Multi-Currency <span class="hotkey">R</span>ates</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="PaymentRecon"><span>Payment <span class="hotkey">S</span>ettlement Reconciliation</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="AuditDiff"><span>MCA <span class="hotkey">D</span>iff Viewer (Audit Trail)</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="MSMECompliance"><span><span class="hotkey">M</span>SME 45-Day Compliance</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="ScheduleIIIBalanceSheet"><span>Schedule <span class="hotkey">I</span>II Balance Sheet</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="RejectionsRegister"><span>Rejections In & <span class="hotkey">O</span>ut Register</span></li>
-                        <li class="gateway-menu-item" data-action="Display" data-target="TDLStudio"><span>TDL <span class="hotkey">M</span>tudio (Live Code)</span></li>
-                    </ul>
-
-                    <div class="gateway-section-title">QUIT</div>
-                    <ul class="gateway-menu-list">
-                        <li class="gateway-menu-item" data-action="Quit" data-target="Quit"><span><span class="hotkey">Q</span>uit</span></li>
-                    </ul>
+                <!-- Executive Top Header Row -->
+                <div class="tf-dash-header">
+                    <div class="tf-dash-title-group">
+                        <h1>Financial &amp; Operations Command Centre</h1>
+                        <p>
+                            <span>Period: <strong>1-Apr-2026 to 31-Mar-2027</strong></span> &nbsp;•&nbsp; 
+                            <span id="current-date-val">Saturday, 31 Oct 2026</span> &nbsp;•&nbsp;
+                            <span>Last Voucher: <strong id="last-voucher-date-val">Loading...</strong></span>
+                        </p>
+                    </div>
+                    <div class="tf-quick-actions">
+                        <button class="tf-btn tf-btn-primary" onclick="openVoucherEntry('Payment')">+ Payment (F5)</button>
+                        <button class="tf-btn tf-btn-primary" onclick="openVoucherEntry('Receipt')">+ Receipt (F6)</button>
+                        <button class="tf-btn tf-btn-primary" onclick="openVoucherEntry('Sales')">+ Sales Invoice (F8)</button>
+                        <button class="tf-btn tf-btn-secondary" onclick="openVoucherEntry('Purchase')">+ Purchase (F9)</button>
+                        <button class="tf-btn tf-btn-secondary" onclick="openReport('DayBook', 'Day Book')">📖 Day Book</button>
+                    </div>
                 </div>
+
+                <!-- 10 ENTERPRISE KPI METRIC CARDS -->
+                <div class="tf-kpi-grid">
+                    <!-- 1. Total Revenue -->
+                    <div class="tf-kpi-card">
+                        <div class="tf-kpi-header">
+                            <span class="tf-kpi-title">Total Revenue</span>
+                            <span class="tf-kpi-icon-badge" style="background:var(--accent-primary-subtle); color:var(--accent-primary);">📈</span>
+                        </div>
+                        <div class="tf-kpi-value" id="kpi-revenue">₹0.00</div>
+                        <div class="tf-kpi-trend"><span class="tf-trend-up">▲ Active</span> B2B &amp; Direct Sales</div>
+                    </div>
+
+                    <!-- 2. Total Purchases / Expenses -->
+                    <div class="tf-kpi-card">
+                        <div class="tf-kpi-header">
+                            <span class="tf-kpi-title">Purchases &amp; Exp</span>
+                            <span class="tf-kpi-icon-badge" style="background:var(--accent-secondary-subtle); color:var(--accent-secondary);">🛒</span>
+                        </div>
+                        <div class="tf-kpi-value" id="kpi-expenses">₹0.00</div>
+                        <div class="tf-kpi-trend">Cost of Goods &amp; Direct Expenses</div>
+                    </div>
+
+                    <!-- 3. Net Profit -->
+                    <div class="tf-kpi-card">
+                        <div class="tf-kpi-header">
+                            <span class="tf-kpi-title">Net Profit</span>
+                            <span class="tf-kpi-icon-badge" style="background:rgba(16, 185, 129, 0.15); color:var(--accent-primary);">💎</span>
+                        </div>
+                        <div class="tf-kpi-value" id="kpi-profit" style="color:var(--accent-primary);">₹0.00</div>
+                        <div class="tf-kpi-trend" id="kpi-margin"><span class="tf-trend-up">● Healthy Margin</span></div>
+                    </div>
+
+                    <!-- 4. Cash Balance -->
+                    <div class="tf-kpi-card">
+                        <div class="tf-kpi-header">
+                            <span class="tf-kpi-title">Cash-in-Hand</span>
+                            <span class="tf-kpi-icon-badge" style="background:rgba(56, 189, 248, 0.15); color:var(--accent-secondary);">💵</span>
+                        </div>
+                        <div class="tf-kpi-value" id="kpi-cash">₹0.00</div>
+                        <div class="tf-kpi-trend">Petty &amp; Cash Accounts</div>
+                    </div>
+
+                    <!-- 5. Bank Balance -->
+                    <div class="tf-kpi-card">
+                        <div class="tf-kpi-header">
+                            <span class="tf-kpi-title">Bank Accounts</span>
+                            <span class="tf-kpi-icon-badge" style="background:rgba(147, 51, 234, 0.12); color:#a855f7);">🏦</span>
+                        </div>
+                        <div class="tf-kpi-value" id="kpi-bank">₹0.00</div>
+                        <div class="tf-kpi-trend">Reconciled Bank Accounts</div>
+                    </div>
+
+                    <!-- 6. Receivables Outstanding -->
+                    <div class="tf-kpi-card">
+                        <div class="tf-kpi-header">
+                            <span class="tf-kpi-title">Receivables (Debtors)</span>
+                            <span class="tf-kpi-icon-badge" style="background:rgba(245, 158, 11, 0.14); color:var(--accent-warning);">📥</span>
+                        </div>
+                        <div class="tf-kpi-value" id="kpi-receivables">₹0.00</div>
+                        <div class="tf-kpi-trend"><a href="javascript:void(0)" onclick="openReport('OutstandingReceivables', 'Bills Outstanding (Receivables)')" style="color:var(--accent-secondary); text-decoration:none;">View Aging Report →</a></div>
+                    </div>
+
+                    <!-- 7. Payables Outstanding -->
+                    <div class="tf-kpi-card">
+                        <div class="tf-kpi-header">
+                            <span class="tf-kpi-title">Payables (Creditors)</span>
+                            <span class="tf-kpi-icon-badge" style="background:rgba(239, 68, 68, 0.14); color:var(--accent-danger);">📤</span>
+                        </div>
+                        <div class="tf-kpi-value" id="kpi-payables">₹0.00</div>
+                        <div class="tf-kpi-trend"><a href="javascript:void(0)" onclick="openReport('OutstandingPayables', 'Bills Payable (Ageing)')" style="color:var(--accent-secondary); text-decoration:none;">View Dues →</a></div>
+                    </div>
+
+                    <!-- 8. Inventory Valuation -->
+                    <div class="tf-kpi-card">
+                        <div class="tf-kpi-header">
+                            <span class="tf-kpi-title">Inventory Value</span>
+                            <span class="tf-kpi-icon-badge" style="background:rgba(16, 185, 129, 0.12); color:var(--accent-primary);">📦</span>
+                        </div>
+                        <div class="tf-kpi-value" id="kpi-inventory">₹0.00</div>
+                        <div class="tf-kpi-trend" id="metrics-stock-count">3 Stock Items</div>
+                    </div>
+
+                    <!-- 9. Net GST Payable -->
+                    <div class="tf-kpi-card">
+                        <div class="tf-kpi-header">
+                            <span class="tf-kpi-title">Net GST Liability</span>
+                            <span class="tf-kpi-icon-badge" style="background:rgba(59, 130, 246, 0.12); color:#60a5fa;">⚖️</span>
+                        </div>
+                        <div class="tf-kpi-value" id="kpi-gst">₹0.00</div>
+                        <div class="tf-kpi-trend">Output Tax - Eligible ITC</div>
+                    </div>
+
+                    <!-- 10. Active Vouchers Count -->
+                    <div class="tf-kpi-card">
+                        <div class="tf-kpi-header">
+                            <span class="tf-kpi-title">Active Vouchers</span>
+                            <span class="tf-kpi-icon-badge" style="background:rgba(245, 158, 11, 0.12); color:var(--accent-warning);">📑</span>
+                        </div>
+                        <div class="tf-kpi-value" id="kpi-vouchers">0</div>
+                        <div class="tf-kpi-trend" id="metrics-ledgers-count">14 Ledgers</div>
+                    </div>
+                </div>
+
+                <!-- FINANCIAL VISUALIZATIONS (ZERO-DEPENDENCY SVG CHARTS) -->
+                <div class="tf-charts-grid">
+                    <!-- Chart 1: Revenue vs Expenses -->
+                    <div class="tf-card">
+                        <div class="tf-card-header">
+                            <div>
+                                <div class="tf-card-title">
+                                    <span>📊</span> Revenue vs. Operating Expenses
+                                </div>
+                                <div class="tf-card-subtitle">Comparative performance against double-entry ledger totals</div>
+                            </div>
+                            <div style="display:flex; gap:12px; font-size:0.75rem;">
+                                <span style="display:flex; align-items:center; gap:4px; color:var(--accent-primary);"><span style="width:8px; height:8px; background:var(--accent-primary); border-radius:2px;"></span> Sales &amp; Income</span>
+                                <span style="display:flex; align-items:center; gap:4px; color:var(--accent-secondary);"><span style="width:8px; height:8px; background:var(--accent-secondary); border-radius:2px;"></span> Purchases &amp; Exp</span>
+                            </div>
+                        </div>
+                        <div class="tf-chart-body" id="chart-rev-exp-container">
+                            <!-- Injected SVG Bar Chart -->
+                        </div>
+                    </div>
+
+                    <!-- Chart 2: Cash Flow & Profit Trend -->
+                    <div class="tf-card">
+                        <div class="tf-card-header">
+                            <div>
+                                <div class="tf-card-title">
+                                    <span>📈</span> Liquidity &amp; Profitability
+                                </div>
+                                <div class="tf-card-subtitle">Receivables vs Payables Obligation Ratio</div>
+                            </div>
+                        </div>
+                        <div class="tf-chart-body" id="chart-ratio-container">
+                            <!-- Injected SVG Donut / Gauge Chart -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SPLIT SECTION: GATEWAY HUB + RECENT TRANSACTIONS & COMPLIANCE -->
+                <div class="tf-bottom-grid">
+
+                    <!-- COLUMN 1: GATEWAY OF TALLY QUICK LAUNCH HUB (Preserves #gateway-box & all menu items for tests) -->
+                    <div class="tf-card" style="padding:0; overflow:hidden;">
+                        <div class="gateway-box" id="gateway-box">
+                            <div class="gateway-box-header">
+                                <div style="display:flex; align-items:center; gap:8px;">
+                                    <span>⚡</span>
+                                    <span>Gateway of Tally — Enterprise Command Launcher</span>
+                                </div>
+                                <span style="font-size:0.72rem; color:var(--text-muted); font-family:var(--font-mono);">Use Hotkeys or Arrows</span>
+                            </div>
+                            
+                            <div class="gateway-menu-scrollable" id="gateway-menu-scrollable">
+                                <div class="gateway-section-title">MASTERS</div>
+                                <ul class="gateway-menu-list">
+                                    <li class="gateway-menu-item active" data-action="Masters" data-target="create"><span><span class="hotkey">C</span>reate</span></li>
+                                    <li class="gateway-menu-item" data-action="Masters" data-target="alter"><span><span class="hotkey">A</span>lter</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="AccountsInfo"><span>C<span class="hotkey">h</span>art of Accounts</span></li>
+                                </ul>
+
+                                <div class="gateway-section-title">TRANSACTIONS</div>
+                                <ul class="gateway-menu-list">
+                                    <li class="gateway-menu-item" data-action="Vouchers" data-target="VoucherEntry"><span><span class="hotkey">V</span>ouchers</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="DayBook"><span><span class="hotkey">D</span>ay Book</span></li>
+                                </ul>
+
+                                <div class="gateway-section-title">UTILITIES &amp; STATUTORY</div>
+                                <ul class="gateway-menu-list">
+                                    <li class="gateway-menu-item" data-action="Display" data-target="BankReconciliation"><span><span class="hotkey">B</span>anking &amp; BRS</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="GSTR1"><span>GST<span class="hotkey">R</span>-1 Outward Return</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="GSTR3B"><span>GSTR-<span class="hotkey">3</span>B Monthly Return</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="PayrollSummary"><span>Pa<span class="hotkey">y</span>roll Pay Sheet</span></li>
+                                </ul>
+
+                                <div class="gateway-section-title">REPORTS</div>
+                                <ul class="gateway-menu-list">
+                                    <li class="gateway-menu-item" data-action="Display" data-target="BalanceSheet"><span>Balance <span class="hotkey">S</span>heet</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="ProfitAndLoss"><span><span class="hotkey">P</span>rofit &amp; Loss A/c</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="StockSummary"><span>Stoc<span class="hotkey">k</span> Summary</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="OutstandingReceivables"><span>Bills <span class="hotkey">O</span>utstanding (Receivables)</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="OutstandingPayables"><span>Bills Pa<span class="hotkey">y</span>able (Ageing)</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="GeneralLedger"><span>General <span class="hotkey">L</span>edger Statement</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="CashFlow"><span>Cash <span class="hotkey">F</span>low Statement</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="FundsFlow"><span><span class="hotkey">U</span>unds Flow Statement</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="BudgetVariance"><span>Budget <span class="hotkey">V</span>ariance Analysis</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="InventoryAgeing"><span>Inventory Agein<span class="hotkey">g</span></span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="GSTR9"><span>GSTR-<span class="hotkey">9</span> Annual Return</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="ConsolidatedFinancials"><span>Consolidated <span class="hotkey">G</span>roup</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="TdsRegister"><span>TD<span class="hotkey">S</span> Withholding Register</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="ChequeRegister"><span>Che<span class="hotkey">q</span>ue Register &amp; Books</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="MfgCost"><span>Manufacturing Cos<span class="hotkey">t</span></span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="CostCentres"><span><span class="hotkey">C</span>ost Centres Breakdown</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="RatioAnalysis"><span>Ratio Ana<span class="hotkey">l</span>ysis</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="AuditEditLog"><span>Statutory Audit (<span class="hotkey">E</span>dit Log)</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="TrialBalance"><span><span class="hotkey">T</span>rial Balance</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="FixedAssets"><span>Fixed <span class="hotkey">A</span>ssets &amp; Depreciation</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="OrderTracking"><span>Sales &amp; <span class="hotkey">P</span>urchase Orders</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="GSTR2BRecon"><span>GSTR-2<span class="hotkey">B</span> ITC Reconciliation</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="LandedCost"><span><span class="hotkey">L</span>anded Cost Allocation</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="POSBilling"><span>Point of Sale (<span class="hotkey">P</span>OS)</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="ForexRevaluation"><span><span class="hotkey">F</span>orex Revaluation Statement</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="Challans"><span>Delivery &amp; Receipt C<span class="hotkey">h</span>allans</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="TCSRegister"><span><span class="hotkey">T</span>CS Tax Collected at Source</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="JobWorkRegister"><span><span class="hotkey">J</span>ob Work &amp; Subcontracting</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="QualityInspection"><span>Quality Control &amp; <span class="hotkey">I</span>nspection</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="CurrencyExchange"><span>Multi-Currency <span class="hotkey">R</span>ates</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="PaymentRecon"><span>Payment <span class="hotkey">S</span>ettlement Reconciliation</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="AuditDiff"><span>MCA <span class="hotkey">D</span>iff Viewer (Audit Trail)</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="MSMECompliance"><span><span class="hotkey">M</span>SME 45-Day Compliance</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="ScheduleIIIBalanceSheet"><span>Schedule <span class="hotkey">I</span>II Balance Sheet</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="RejectionsRegister"><span>Rejections In &amp; <span class="hotkey">O</span>ut Register</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="TDLStudio"><span>TDL <span class="hotkey">M</span>tudio (Live Code)</span></li>
+                                </ul>
+
+                                <div class="gateway-section-title">QUIT</div>
+                                <ul class="gateway-menu-list">
+                                    <li class="gateway-menu-item" data-action="Quit" data-target="Quit"><span><span class="hotkey">Q</span>uit</span></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- COLUMN 2: RECENT TRANSACTIONS FEED & COMPLIANCE STATUS -->
+                    <div style="display:flex; flex-direction:column; gap:16px;">
+                        <!-- Recent Transactions Card -->
+                        <div class="tf-card" style="flex:1;">
+                            <div class="tf-card-header">
+                                <div class="tf-card-title">
+                                    <span>🕒</span> Recent Vouchers &amp; Transactions
+                                </div>
+                                <button class="btn-tally-primary" onclick="openReport('DayBook', 'Day Book')" style="font-size:0.75rem; padding:4px 8px;">View All</button>
+                            </div>
+                            <div style="max-height: 230px; overflow-y: auto;">
+                                <table class="tally-data-table" id="recent-vouchers-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Type</th>
+                                            <th>Date</th>
+                                            <th>Party / Narration</th>
+                                            <th style="text-align:right;">Amount (₹)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="recent-vouchers-tbody">
+                                        <tr><td colspan="4" style="text-align:center; padding:12px; color:var(--text-muted);">Loading recent transactions...</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Statutory & Compliance Checklist Widget -->
+                        <div class="tf-card">
+                            <div class="tf-card-header">
+                                <div class="tf-card-title">
+                                    <span>🛡️</span> Statutory Compliance &amp; Integrity Health
+                                </div>
+                                <span class="tf-status-pill" style="font-size:0.68rem;">100% Compliant</span>
+                            </div>
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; font-size:0.78rem;">
+                                <div style="display:flex; align-items:center; gap:6px;">
+                                    <span style="color:var(--accent-primary);">✓</span>
+                                    <span>MCA Rule 3(1) Edit Log: <strong>Active</strong></span>
+                                </div>
+                                <div style="display:flex; align-items:center; gap:6px;">
+                                    <span style="color:var(--accent-primary);">✓</span>
+                                    <span>GST Engine (CGST/SGST): <strong>Active</strong></span>
+                                </div>
+                                <div style="display:flex; align-items:center; gap:6px;">
+                                    <span style="color:var(--accent-primary);">✓</span>
+                                    <span>MSME 45-Day Overdue: <strong>Zero Defaulters</strong></span>
+                                </div>
+                                <div style="display:flex; align-items:center; gap:6px;">
+                                    <span style="color:var(--accent-primary);">✓</span>
+                                    <span>Double-Entry Equilibrium: <strong>Balanced</strong></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
             </div>
 
-            <!-- SCREEN 2: TDL Report Screen Container -->
+            <!-- ===================================================================
+                 SCREEN 2: TDL REPORT SCREEN CONTAINER
+                 =================================================================== -->
             <div class="tally-screen-container" id="report-screen" style="display: none;">
                 <div class="screen-header-bar">
-                    <span style="font-weight: bold; font-size: 1.05rem;" id="report-title">Report Title</span>
-                    <div style="display: flex; gap: 8px; align-items:center;">
+                    <span style="font-weight: 700; font-size: 1.1rem; color:var(--text-primary);" id="report-title">Report Title</span>
+                    <div style="display: flex; gap: 8px; align-items:center; flex-wrap:wrap;">
                         <!-- Date range filters for reports -->
-                        <div id="report-date-filters" style="display:flex; gap:4px; align-items:center;">
-                            <label style="font-size:0.75rem; color:#fff;">From:</label>
-                            <input type="date" id="report-from-date" class="tally-input" style="padding:2px 4px; font-size:0.75rem; width:115px;">
-                            <label style="font-size:0.75rem; color:#fff;">To:</label>
-                            <input type="date" id="report-to-date" class="tally-input" style="padding:2px 4px; font-size:0.75rem; width:115px;">
-                            <button class="btn-tally-primary" onclick="filterReportByDate()" style="background:#004d40; font-size:0.75rem; padding:2px 8px;">Filter</button>
+                        <div id="report-date-filters" style="display:flex; gap:6px; align-items:center;">
+                            <label style="font-size:0.78rem; color:var(--text-secondary);">From:</label>
+                            <input type="date" id="report-from-date" class="tally-input" style="padding:4px 8px; font-size:0.78rem; width:130px;">
+                            <label style="font-size:0.78rem; color:var(--text-secondary);">To:</label>
+                            <input type="date" id="report-to-date" class="tally-input" style="padding:4px 8px; font-size:0.78rem; width:130px;">
+                            <button class="btn-tally-primary" onclick="filterReportByDate()" style="font-size:0.78rem; padding:4px 10px;">Filter</button>
                         </div>
                         <!-- Optional ledger filter for General Ledger -->
                         <div id="report-ledger-filter" style="display:none; gap:6px; align-items:center;">
-                            <label style="font-size:0.78rem; color:#fff;">Ledger:</label>
-                            <select id="report-ledger-select" class="tally-input" style="padding:2px 6px; font-size:0.8rem;" onchange="reloadGeneralLedger()"></select>
+                            <label style="font-size:0.78rem; color:var(--text-secondary);">Ledger:</label>
+                            <select id="report-ledger-select" class="tally-input" style="padding:4px 8px; font-size:0.8rem;" onchange="reloadGeneralLedger()"></select>
                         </div>
-                        <button class="btn-tally-primary" id="report-action-btn" style="display:none; background:#ff6f00; font-size:0.78rem;" onclick="onReportActionClick()">Action</button>
-                        <button class="btn-tally-primary" onclick="printReport()" style="background:#00695c; font-size:0.78rem;">P: Print</button>
-                        <button class="btn-tally-primary" onclick="exportDataCSV()" style="background:#00695c; font-size:0.78rem;">E: Export</button>
-                        <button class="btn-tally-primary" onclick="goBackToGateway()" style="font-size:0.78rem;">Esc: Back</button>
+                        <button class="btn-tally-primary" id="report-action-btn" style="display:none; background:var(--accent-warning); font-size:0.78rem;" onclick="onReportActionClick()">Action</button>
+                        <button class="btn-tally-primary" onclick="printReport()" style="background:var(--accent-secondary); font-size:0.78rem;">P: Print</button>
+                        <button class="btn-tally-primary" onclick="exportDataCSV()" style="background:var(--accent-primary); font-size:0.78rem;">E: Export</button>
+                        <button class="btn-tally-primary" onclick="goBackToGateway()" style="font-size:0.78rem; background:var(--surface-hover); color:var(--text-primary); border:1px solid var(--border-color);">Esc: Back</button>
                     </div>
                 </div>
                 <div class="screen-content-area">
@@ -191,16 +525,18 @@
                 </div>
             </div>
 
-            <!-- SCREEN 3: Accounting Voucher Entry Screen -->
+            <!-- ===================================================================
+                 SCREEN 3: ACCOUNTING VOUCHER ENTRY SCREEN
+                 =================================================================== -->
             <div class="tally-screen-container" id="voucher-screen" style="display: none;">
                 <div class="screen-header-bar">
                     <div style="display:flex; align-items:center;">
-                        <span style="font-weight: bold; font-size: 1.05rem;" id="vch-title">Accounting Voucher Creation</span>
-                        <span id="vch-number-badge" style="background:#e0f2f1; color:#004d40; padding:2px 8px; font-size:0.75rem; border-radius:3px; margin-left:10px; font-weight:bold; border:1px solid #80cbc4;">Auto #</span>
+                        <span style="font-weight: 700; font-size: 1.1rem; color:var(--text-primary);" id="vch-title">Accounting Voucher Creation</span>
+                        <span id="vch-number-badge" style="background:var(--accent-primary-subtle); color:var(--accent-primary); padding:3px 10px; font-size:0.75rem; border-radius:var(--radius-xs); margin-left:12px; font-weight:700; border:1px solid rgba(16, 185, 129, 0.2);">Auto #</span>
                     </div>
                     <div style="display:flex; gap:8px;">
-                        <button class="btn-tally-primary" id="vch-mode-toggle-btn" onclick="toggleVoucherMode()" style="background:#00695c; font-size:0.75rem;">Switch to Multi-Line Grid</button>
-                        <button class="btn-tally-primary" onclick="goBackToGateway()" style="font-size:0.78rem;">Esc: Back</button>
+                        <button class="btn-tally-primary" id="vch-mode-toggle-btn" onclick="toggleVoucherMode()" style="background:var(--accent-secondary); font-size:0.78rem;">Switch to Multi-Line Grid</button>
+                        <button class="btn-tally-primary" onclick="goBackToGateway()" style="font-size:0.78rem; background:var(--surface-hover); color:var(--text-primary); border:1px solid var(--border-color);">Esc: Back</button>
                     </div>
                 </div>
                 <div class="screen-content-area voucher-form-container">
@@ -208,7 +544,7 @@
                     <div class="voucher-meta-row">
                         <div style="flex:1;">
                             <strong>Voucher Type:</strong> 
-                            <select id="vch-type-select" class="tally-input" style="font-weight:bold; color:#004d40; padding:2px 6px;" onchange="onVoucherTypeChanged(this.value)">
+                            <select id="vch-type-select" class="tally-input" style="font-weight:700; color:var(--accent-primary); width:100%; margin-top:4px;" onchange="onVoucherTypeChanged(this.value)">
                                 <option value="Payment">Payment (F5)</option>
                                 <option value="Receipt">Receipt (F6)</option>
                                 <option value="Contra">Contra (F4)</option>
@@ -231,11 +567,12 @@
                             </select>
                         </div>
                         <div style="flex:1;">
-                            <strong>Date:</strong> <input type="date" id="vch-date" class="tally-input" style="padding:2px 6px;">
+                            <strong>Date:</strong> 
+                            <input type="date" id="vch-date" class="tally-input" style="width:100%; margin-top:4px;">
                         </div>
                         <div style="flex:1;">
                             <strong>Currency:</strong> 
-                            <select id="vch-currency" class="tally-input" style="padding:2px 4px;">
+                            <select id="vch-currency" class="tally-input" style="width:100%; margin-top:4px;">
                                 <option value="₹">₹ (INR)</option>
                                 <option value="$">$ (USD)</option>
                                 <option value="€">€ (EUR)</option>
@@ -245,26 +582,26 @@
 
                     <!-- STANDARD VOUCHER MODE -->
                     <div id="vch-standard-mode">
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
                             <div class="voucher-field-group">
                                 <label id="vch-dr-label">Debit (By) Ledger / Party:</label>
                                 <select id="vch-dr-ledger" class="tally-input" onchange="updateVchLedgerBalances()"></select>
-                                <span id="vch-dr-bal" style="font-size:0.75rem; color:#555; margin-top:2px;">Cur Bal: ₹0.00</span>
+                                <span id="vch-dr-bal" style="font-size:0.75rem; color:var(--text-muted); margin-top:3px; font-family:var(--font-mono);">Cur Bal: ₹0.00</span>
                             </div>
                             <div class="voucher-field-group">
                                 <label id="vch-cr-label">Credit (To) Ledger / Account:</label>
                                 <select id="vch-cr-ledger" class="tally-input" onchange="updateVchLedgerBalances()"></select>
-                                <span id="vch-cr-bal" style="font-size:0.75rem; color:#555; margin-top:2px;">Cur Bal: ₹0.00</span>
+                                <span id="vch-cr-bal" style="font-size:0.75rem; color:var(--text-muted); margin-top:3px; font-family:var(--font-mono);">Cur Bal: ₹0.00</span>
                             </div>
                         </div>
 
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top:8px;">
                             <div class="voucher-field-group">
                                 <div style="display:flex; justify-content:space-between; align-items:center;">
                                     <label>Voucher Amount (₹):</label>
-                                    <button class="btn-tally-primary" onclick="autoCalculateGSTPrompt()" style="font-size:0.7rem; padding:1px 6px; background:#00796b;">Auto-Calc GST</button>
+                                    <button class="btn-tally-primary" onclick="autoCalculateGSTPrompt()" style="font-size:0.7rem; padding:2px 8px; background:var(--accent-secondary);">Auto-Calc GST</button>
                                 </div>
-                                <input type="number" id="vch-amount" class="tally-input" placeholder="0.00" step="0.01">
+                                <input type="number" id="vch-amount" class="tally-input amount-cell" placeholder="0.00" step="0.01">
                             </div>
                             <div class="voucher-field-group">
                                 <label>Bill-Wise Reference (Agst Ref / New Ref):</label>
@@ -273,34 +610,38 @@
                         </div>
 
                         <!-- Inventory & Godown Allocation -->
-                        <div style="border: 1px solid #b2dfdb; padding: 8px 12px; background: #fafdfc; margin-top:6px;">
-                            <div style="font-size:0.8rem; font-weight:bold; color:#004d40; margin-bottom: 6px;">
+                        <div style="border: 1px solid var(--border-color); border-radius:var(--radius-sm); padding: 12px 16px; background: var(--surface-subtle); margin-top:10px;">
+                            <div style="font-size:0.8rem; font-weight:700; color:var(--accent-primary); margin-bottom: 8px;">
                                 INVENTORY &amp; GODOWN ALLOCATION (Optional)
                             </div>
-                            <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 8px;">
+                            <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 10px;">
                                 <div>
-                                    <select id="vch-stock-item" class="tally-input" style="width:100%;" onchange="onStockItemSelectChanged()">
+                                    <label style="font-size:0.72rem; color:var(--text-muted);">Stock Item:</label>
+                                    <select id="vch-stock-item" class="tally-input" style="width:100%; margin-top:2px;" onchange="onStockItemSelectChanged()">
                                         <option value="">-- No Item / Service Invoice --</option>
                                     </select>
                                 </div>
                                 <div>
-                                    <select id="vch-godown" class="tally-input" style="width:100%;">
+                                    <label style="font-size:0.72rem; color:var(--text-muted);">Godown:</label>
+                                    <select id="vch-godown" class="tally-input" style="width:100%; margin-top:2px;">
                                         <option value="Main Location">Main Location</option>
                                         <option value="Warehouse A">Warehouse A</option>
                                         <option value="Warehouse B">Warehouse B</option>
                                     </select>
                                 </div>
                                 <div>
-                                    <input type="number" id="vch-stock-qty" class="tally-input" placeholder="Quantity" style="width:100%;" oninput="onStockQtyRateChanged()">
+                                    <label style="font-size:0.72rem; color:var(--text-muted);">Quantity:</label>
+                                    <input type="number" id="vch-stock-qty" class="tally-input" placeholder="Qty" style="width:100%; margin-top:2px;" oninput="onStockQtyRateChanged()">
                                 </div>
                                 <div>
-                                    <input type="number" id="vch-stock-rate" class="tally-input" placeholder="Rate (₹)" style="width:100%;" oninput="onStockQtyRateChanged()">
+                                    <label style="font-size:0.72rem; color:var(--text-muted);">Rate (₹):</label>
+                                    <input type="number" id="vch-stock-rate" class="tally-input amount-cell" placeholder="0.00" style="width:100%; margin-top:2px;" oninput="onStockQtyRateChanged()">
                                 </div>
                             </div>
                         </div>
 
                         <!-- Cost Centre Allocation & Narration -->
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top:6px;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top:10px;">
                             <div class="voucher-field-group">
                                 <label>Cost Centre Allocation (Optional):</label>
                                 <select id="vch-cost-centre" class="tally-input">
@@ -315,16 +656,16 @@
                     </div>
 
                     <!-- MULTI-LINE JOURNAL GRID MODE -->
-                    <div id="vch-multiline-mode" style="display:none; flex-direction:column; gap:8px;">
-                        <div style="background:#e0f2f1; padding:6px 10px; font-size:0.8rem; font-weight:bold; color:#004d40; display:flex; justify-content:space-between; align-items:center;">
+                    <div id="vch-multiline-mode" style="display:none; flex-direction:column; gap:10px;">
+                        <div style="background:var(--surface-subtle); padding:8px 12px; font-size:0.8rem; font-weight:700; color:var(--accent-primary); display:flex; justify-content:space-between; align-items:center; border:1px solid var(--border-color); border-radius:var(--radius-sm);">
                             <span>MULTI-LINE ACCOUNTING ENTRIES GRID</span>
                             <div style="display:flex; gap:6px;">
-                                <button class="btn-tally-primary" onclick="addMultilineRow()" style="font-size:0.75rem; padding:2px 8px; background:#2e7d32;">+ Add Line</button>
-                                <button class="btn-tally-primary" onclick="autoBalanceMultiline()" style="font-size:0.75rem; padding:2px 8px; background:#00796b;">Auto-Balance</button>
-                                <button class="btn-tally-primary" onclick="addGSTLinesToMultiline()" style="font-size:0.75rem; padding:2px 8px; background:#004d40;">Add 18% GST (CGST+SGST)</button>
+                                <button class="btn-tally-primary" onclick="addMultilineRow()" style="font-size:0.75rem; padding:3px 10px; background:var(--accent-primary);">+ Add Line</button>
+                                <button class="btn-tally-primary" onclick="autoBalanceMultiline()" style="font-size:0.75rem; padding:3px 10px; background:var(--accent-secondary);">Auto-Balance</button>
+                                <button class="btn-tally-primary" onclick="addGSTLinesToMultiline()" style="font-size:0.75rem; padding:3px 10px; background:var(--surface-hover); color:var(--text-primary); border:1px solid var(--border-color);">Add 18% GST (CGST+SGST)</button>
                             </div>
                         </div>
-                        <div style="max-height:220px; overflow-y:auto; border:1px solid #b2dfdb;">
+                        <div style="max-height:240px; overflow-y:auto; border:1px solid var(--border-color); border-radius:var(--radius-sm);">
                             <table class="tally-data-table" id="ml-table" style="margin:0;">
                                 <thead>
                                     <tr>
@@ -339,10 +680,10 @@
                                 <tbody id="ml-table-body"></tbody>
                             </table>
                         </div>
-                        <div style="background:#fafafa; padding:6px 12px; border:1px solid #ccc; display:flex; justify-content:space-between; font-size:0.85rem; font-weight:bold;">
-                            <div>Total Debit: <span id="ml-total-dr" style="color:#004d40;">₹0.00</span></div>
-                            <div>Total Credit: <span id="ml-total-cr" style="color:#004d40;">₹0.00</span></div>
-                            <div>Variance: <span id="ml-variance" style="color:#2e7d32;">₹0.00 (Balanced)</span></div>
+                        <div style="background:var(--surface-subtle); padding:8px 14px; border:1px solid var(--border-color); border-radius:var(--radius-sm); display:flex; justify-content:space-between; font-size:0.85rem; font-weight:700; font-family:var(--font-mono);">
+                            <div>Total Debit: <span id="ml-total-dr" style="color:var(--accent-primary);">₹0.00</span></div>
+                            <div>Total Credit: <span id="ml-total-cr" style="color:var(--accent-primary);">₹0.00</span></div>
+                            <div>Variance: <span id="ml-variance" style="color:var(--accent-primary);">₹0.00 (Balanced)</span></div>
                         </div>
                         <div class="voucher-field-group" style="margin-top:4px;">
                             <label>Narration:</label>
@@ -351,36 +692,38 @@
                     </div>
 
                     <!-- Action Buttons -->
-                    <div style="display: flex; justify-content: space-between; align-items:center; margin-top: 10px;">
-                        <button class="btn-tally-primary" id="vch-history-btn" onclick="openVoucherAuditHistory()" style="background:#546e7a; display:none;">View Audit History</button>
+                    <div style="display: flex; justify-content: space-between; align-items:center; margin-top: 14px;">
+                        <button class="btn-tally-primary" id="vch-history-btn" onclick="openVoucherAuditHistory()" style="background:var(--surface-hover); color:var(--text-secondary); border:1px solid var(--border-color); display:none;">View Audit History</button>
                         <div style="display:flex; gap:10px; margin-left:auto;">
-                            <button class="btn-tally-primary" onclick="saveVoucher()" style="background:#2e7d32;">Accept (Ctrl+A)</button>
-                            <button class="btn-tally-primary" onclick="cancelVoucherPrompt()" style="background:#f57f17;">Cancel Voucher</button>
-                            <button class="btn-tally-primary" onclick="goBackToGateway()" style="background:#c62828;">Quit (Esc)</button>
+                            <button class="btn-tally-primary" onclick="saveVoucher()" style="background:var(--accent-primary); font-size:0.88rem; padding:8px 18px;">Accept (Ctrl+A)</button>
+                            <button class="btn-tally-primary" onclick="cancelVoucherPrompt()" style="background:var(--accent-warning); color:#fff;">Cancel Voucher</button>
+                            <button class="btn-tally-primary" onclick="goBackToGateway()" style="background:var(--accent-danger); color:#fff;">Quit (Esc)</button>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- SCREEN 4: Masters Screen (Ledgers, Groups, Stock Items, UOM, Godowns, Employees, Cost Centres, Tax) -->
+            <!-- ===================================================================
+                 SCREEN 4: MASTERS SCREEN
+                 =================================================================== -->
             <div class="tally-screen-container" id="masters-screen" style="display: none;">
                 <div class="screen-header-bar">
-                    <span style="font-weight: bold; font-size: 1.05rem;" id="masters-title">Chart of Accounts</span>
+                    <span style="font-weight: 700; font-size: 1.1rem; color:var(--text-primary);" id="masters-title">Chart of Accounts</span>
                     <div style="display: flex; gap: 8px;">
-                        <button class="btn-tally-primary" onclick="createMasterPrompt()" style="background:#2e7d32; font-size:0.78rem;">+ Create New</button>
-                        <button class="btn-tally-primary" onclick="goBackToGateway()" style="font-size:0.78rem;">Esc: Back</button>
+                        <button class="btn-tally-primary" onclick="createMasterPrompt()" style="background:var(--accent-primary); font-size:0.80rem;">+ Create New</button>
+                        <button class="btn-tally-primary" onclick="goBackToGateway()" style="font-size:0.80rem; background:var(--surface-hover); color:var(--text-primary); border:1px solid var(--border-color);">Esc: Back</button>
                     </div>
                 </div>
                 <!-- Masters Category Tabs -->
-                <div style="background:#004d40; padding:4px 10px; display:flex; gap:6px; border-bottom:1px solid #00332c; overflow-x:auto;">
-                    <button class="btn-tally-primary master-tab-btn" onclick="openMasters('ledgers')" id="master-tab-ledgers" style="font-size:0.75rem; padding:3px 8px; background:#00796b;">Ledgers</button>
-                    <button class="btn-tally-primary master-tab-btn" onclick="openMasters('groups')" id="master-tab-groups" style="font-size:0.75rem; padding:3px 8px; background:#004d40;">Groups</button>
-                    <button class="btn-tally-primary master-tab-btn" onclick="openMasters('stock_items')" id="master-tab-stock_items" style="font-size:0.75rem; padding:3px 8px; background:#004d40;">Stock Items</button>
-                    <button class="btn-tally-primary master-tab-btn" onclick="openMasters('units')" id="master-tab-units" style="font-size:0.75rem; padding:3px 8px; background:#004d40;">Units (UOM)</button>
-                    <button class="btn-tally-primary master-tab-btn" onclick="openMasters('godowns')" id="master-tab-godowns" style="font-size:0.75rem; padding:3px 8px; background:#004d40;">Godowns</button>
-                    <button class="btn-tally-primary master-tab-btn" onclick="openMasters('employees')" id="master-tab-employees" style="font-size:0.75rem; padding:3px 8px; background:#004d40;">Employees</button>
-                    <button class="btn-tally-primary master-tab-btn" onclick="openMasters('cost_centres')" id="master-tab-cost_centres" style="font-size:0.75rem; padding:3px 8px; background:#004d40;">Cost Centres</button>
-                    <button class="btn-tally-primary master-tab-btn" onclick="openMasters('tax_configs')" id="master-tab-tax_configs" style="font-size:0.75rem; padding:3px 8px; background:#004d40;">Tax &amp; Slabs</button>
+                <div style="background:var(--surface-subtle); padding:6px 12px; display:flex; gap:6px; border-bottom:1px solid var(--border-color); overflow-x:auto;">
+                    <button class="btn-tally-primary master-tab-btn" onclick="openMasters('ledgers')" id="master-tab-ledgers" style="font-size:0.75rem; padding:4px 10px; background:var(--accent-primary);">Ledgers</button>
+                    <button class="btn-tally-primary master-tab-btn" onclick="openMasters('groups')" id="master-tab-groups" style="font-size:0.75rem; padding:4px 10px; background:var(--surface); color:var(--text-secondary); border:1px solid var(--border-color);">Groups</button>
+                    <button class="btn-tally-primary master-tab-btn" onclick="openMasters('stock_items')" id="master-tab-stock_items" style="font-size:0.75rem; padding:4px 10px; background:var(--surface); color:var(--text-secondary); border:1px solid var(--border-color);">Stock Items</button>
+                    <button class="btn-tally-primary master-tab-btn" onclick="openMasters('units')" id="master-tab-units" style="font-size:0.75rem; padding:4px 10px; background:var(--surface); color:var(--text-secondary); border:1px solid var(--border-color);">Units (UOM)</button>
+                    <button class="btn-tally-primary master-tab-btn" onclick="openMasters('godowns')" id="master-tab-godowns" style="font-size:0.75rem; padding:4px 10px; background:var(--surface); color:var(--text-secondary); border:1px solid var(--border-color);">Godowns</button>
+                    <button class="btn-tally-primary master-tab-btn" onclick="openMasters('employees')" id="master-tab-employees" style="font-size:0.75rem; padding:4px 10px; background:var(--surface); color:var(--text-secondary); border:1px solid var(--border-color);">Employees</button>
+                    <button class="btn-tally-primary master-tab-btn" onclick="openMasters('cost_centres')" id="master-tab-cost_centres" style="font-size:0.75rem; padding:4px 10px; background:var(--surface); color:var(--text-secondary); border:1px solid var(--border-color);">Cost Centres</button>
+                    <button class="btn-tally-primary master-tab-btn" onclick="openMasters('tax_configs')" id="master-tab-tax_configs" style="font-size:0.75rem; padding:4px 10px; background:var(--surface); color:var(--text-secondary); border:1px solid var(--border-color);">Tax &amp; Slabs</button>
                 </div>
                 <div class="screen-content-area">
                     <table class="tally-data-table">
@@ -390,48 +733,50 @@
                 </div>
             </div>
 
-            <!-- SCREEN 5: TDL Studio Screen -->
+            <!-- ===================================================================
+                 SCREEN 5: TDL STUDIO SCREEN
+                 =================================================================== -->
             <div class="tally-screen-container" id="tdl-studio-screen" style="display: none;">
                 <div class="screen-header-bar">
-                    <span style="font-weight: bold; font-size: 1.05rem;">TDL Studio (Live Tally Definition Language Runtime)</span>
-                    <button class="btn-tally-primary" onclick="goBackToGateway()" style="font-size:0.78rem;">Esc: Back</button>
+                    <span style="font-weight: 700; font-size: 1.1rem; color:var(--text-primary);">TDL Studio — Live Tally Definition Language Runtime</span>
+                    <button class="btn-tally-primary" onclick="goBackToGateway()" style="font-size:0.80rem; background:var(--surface-hover); color:var(--text-primary); border:1px solid var(--border-color);">Esc: Back</button>
                 </div>
                 <!-- TDL Tabs: Editor | Extensions Manager | Compatibility Registry -->
-                <div style="background:#004d40; padding:4px 10px; display:flex; gap:6px; border-bottom:1px solid #00332c;">
-                    <button class="btn-tally-primary" onclick="switchTDLTab('editor')" id="tdl-tab-btn-editor" style="font-size:0.75rem; padding:3px 10px; background:#00796b;">Code Editor &amp; Compiler</button>
-                    <button class="btn-tally-primary" onclick="switchTDLTab('manager')" id="tdl-tab-btn-manager" style="font-size:0.75rem; padding:3px 10px; background:#004d40;">Offline Extension Manager</button>
-                    <button class="btn-tally-primary" onclick="switchTDLTab('compat')" id="tdl-tab-btn-compat" style="font-size:0.75rem; padding:3px 10px; background:#004d40;">Compatibility Registry</button>
+                <div style="background:var(--surface-subtle); padding:6px 12px; display:flex; gap:6px; border-bottom:1px solid var(--border-color);">
+                    <button class="btn-tally-primary" onclick="switchTDLTab('editor')" id="tdl-tab-btn-editor" style="font-size:0.75rem; padding:4px 12px; background:var(--accent-primary);">Code Editor &amp; Compiler</button>
+                    <button class="btn-tally-primary" onclick="switchTDLTab('manager')" id="tdl-tab-btn-manager" style="font-size:0.75rem; padding:4px 12px; background:var(--surface); color:var(--text-secondary); border:1px solid var(--border-color);">Offline Extension Manager</button>
+                    <button class="btn-tally-primary" onclick="switchTDLTab('compat')" id="tdl-tab-btn-compat" style="font-size:0.75rem; padding:4px 12px; background:var(--surface); color:var(--text-secondary); border:1px solid var(--border-color);">Compatibility Registry</button>
                 </div>
 
                 <!-- Pane 1: Editor -->
                 <div id="tdl-pane-editor" style="display:flex; flex-direction:column; flex:1;">
-                    <textarea id="tdl-editor" style="flex:1; background:#1e272c; color:#80cbc4; font-family:var(--tally-font); padding:12px; font-size:0.92rem; border:none; resize:none; line-height:1.45;" spellcheck="false" oninput="validateTDLCode()"></textarea>
+                    <textarea id="tdl-editor" style="flex:1; background:#0B1120; color:#38BDF8; font-family:var(--font-mono); padding:14px; font-size:0.90rem; border:none; resize:none; line-height:1.5;" spellcheck="false" oninput="validateTDLCode()"></textarea>
                     
                     <!-- TDL Diagnostics Panel -->
-                    <div id="tdl-diagnostics" style="display:none; max-height:100px; overflow-y:auto; background:#ffebee; padding:6px 12px; font-size:0.8rem; border-top:1px solid #ef9a9a;"></div>
+                    <div id="tdl-diagnostics" style="display:none; max-height:100px; overflow-y:auto; background:var(--accent-danger-subtle); color:var(--accent-danger); padding:8px 14px; font-size:0.8rem; border-top:1px solid var(--border-color);"></div>
 
-                    <div style="background:#eceff1; padding:8px 14px; display:flex; justify-content:space-between; align-items:center;">
-                        <span style="font-size:0.78rem; color:#555;">Supports: [#Menu], [Report], [Form], [Part], [Line], [Field], [Collection], [Button], [Key], [UDF]</span>
+                    <div style="background:var(--surface-subtle); border-top:1px solid var(--border-color); padding:10px 16px; display:flex; justify-content:space-between; align-items:center;">
+                        <span style="font-size:0.78rem; color:var(--text-muted);">AST Keywords: [#Menu], [Report], [Form], [Part], [Line], [Field], [Collection], [Button], [Key], [UDF]</span>
                         <div style="display:flex; gap:8px;">
-                            <button class="btn-tally-primary" onclick="validateTDLCode(true)" style="background:#546e7a;">Check Syntax</button>
-                            <button class="btn-tally-primary" onclick="compileAndApplyTDL()" style="background:#00796b;">Compile &amp; Apply TDL Live</button>
+                            <button class="btn-tally-primary" onclick="validateTDLCode(true)" style="background:var(--surface-hover); color:var(--text-primary); border:1px solid var(--border-color);">Check Syntax</button>
+                            <button class="btn-tally-primary" onclick="compileAndApplyTDL()" style="background:var(--accent-primary);">Compile &amp; Apply TDL Live</button>
                         </div>
                     </div>
                 </div>
 
                 <!-- Pane 2: Offline Extension Manager -->
-                <div id="tdl-pane-manager" style="display:none; flex-direction:column; flex:1; padding:12px; overflow-y:auto; background:#f5f7f7;">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <div id="tdl-pane-manager" style="display:none; flex-direction:column; flex:1; padding:16px; overflow-y:auto; background:var(--bg-primary);">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
                         <div>
-                            <span style="font-weight:bold; font-size:0.95rem; color:#004d40;">Installed TDL Definitions &amp; Extensions</span>
-                            <div style="font-size:0.75rem; color:#666;">Active definitions loaded from <code>definitions/</code> into active company symbol table.</div>
+                            <span style="font-weight:700; font-size:0.95rem; color:var(--text-primary);">Installed TDL Definitions &amp; Extensions</span>
+                            <div style="font-size:0.75rem; color:var(--text-secondary);">Active definitions loaded from <code>definitions/</code> into active company symbol table.</div>
                         </div>
-                        <div style="display:flex; gap:6px;">
-                            <button class="btn-tally-primary" onclick="reloadTDLExtensions()" style="background:#00796b; font-size:0.78rem;">Reload All</button>
-                            <button class="btn-tally-primary" onclick="openImportTDLModal()" style="background:#2e7d32; font-size:0.78rem;">+ Import .TDL</button>
+                        <div style="display:flex; gap:8px;">
+                            <button class="btn-tally-primary" onclick="reloadTDLExtensions()" style="background:var(--accent-secondary); font-size:0.78rem;">Reload All</button>
+                            <button class="btn-tally-primary" onclick="openImportTDLModal()" style="background:var(--accent-primary); font-size:0.78rem;">+ Import .TDL</button>
                         </div>
                     </div>
-                    <div style="background:#fff; border:1px solid #b2dfdb; border-radius:3px; overflow:hidden;">
+                    <div style="background:var(--surface-card); border:1px solid var(--border-color); border-radius:var(--radius-sm); overflow:hidden;">
                         <table class="tally-data-table" style="margin:0;">
                             <thead>
                                 <tr>
@@ -444,40 +789,40 @@
                                 </tr>
                             </thead>
                             <tbody id="tdl-extensions-table-body">
-                                <tr><td colspan="6" style="text-align:center; padding:12px;">Loading installed extensions...</td></tr>
+                                <tr><td colspan="6" style="text-align:center; padding:12px; color:var(--text-muted);">Loading installed extensions...</td></tr>
                             </tbody>
                         </table>
                     </div>
-                    <div style="margin-top:12px; background:#fff; border:1px solid #b2dfdb; padding:10px; border-radius:3px;">
-                        <span style="font-weight:bold; font-size:0.85rem; color:#004d40;">Inspect Extension AST Hierarchy</span>
-                        <div id="tdl-extension-inspect-view" style="font-family:monospace; font-size:0.8rem; background:#1e272c; color:#80cbc4; padding:8px; border-radius:3px; margin-top:6px; max-height:140px; overflow-y:auto;">
+                    <div style="margin-top:14px; background:var(--surface-card); border:1px solid var(--border-color); padding:12px; border-radius:var(--radius-sm);">
+                        <span style="font-weight:700; font-size:0.85rem; color:var(--text-primary);">Inspect Extension AST Hierarchy</span>
+                        <div id="tdl-extension-inspect-view" style="font-family:var(--font-mono); font-size:0.80rem; background:#0B1120; color:var(--accent-secondary); padding:10px; border-radius:var(--radius-xs); margin-top:8px; max-height:160px; overflow-y:auto;">
                             Select an extension above and click "Inspect" to view its AST nodes.
                         </div>
                     </div>
                 </div>
 
                 <!-- Pane 3: Compatibility Registry -->
-                <div id="tdl-pane-compat" style="display:none; flex-direction:column; flex:1; padding:14px; overflow-y:auto; background:#fff;">
-                    <div style="font-weight:bold; font-size:0.95rem; color:#004d40; margin-bottom:4px;">TDL Specification &amp; Compatibility Registry (2026 Release)</div>
-                    <p style="font-size:0.8rem; color:#555; margin-bottom:12px;">Engine implements AST-driven TDL specification for offline execution against local SQLite double-entry records.</p>
-                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
-                        <div style="border:1px solid #b2dfdb; padding:10px; border-radius:3px; background:#fafdfc;">
-                            <div style="font-weight:bold; font-size:0.82rem; color:#004d40; margin-bottom:6px;">Supported AST Definition Types</div>
-                            <div id="compat-supported-types" style="font-size:0.78rem; line-height:1.5; color:#333;">Loading...</div>
-                            <div style="font-weight:bold; font-size:0.82rem; color:#004d40; margin-top:8px; margin-bottom:4px;">Supported Built-in Functions</div>
-                            <div id="compat-supported-functions" style="font-size:0.75rem; font-family:monospace; color:#00695c; max-height:120px; overflow-y:auto;">Loading...</div>
+                <div id="tdl-pane-compat" style="display:none; flex-direction:column; flex:1; padding:16px; overflow-y:auto; background:var(--bg-primary);">
+                    <div style="font-weight:700; font-size:1.0rem; color:var(--text-primary); margin-bottom:4px;">TDL Specification &amp; Compatibility Registry (2026 Release)</div>
+                    <p style="font-size:0.80rem; color:var(--text-secondary); margin-bottom:14px;">Engine implements AST-driven TDL specification for offline execution against local SQLite double-entry records.</p>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+                        <div style="border:1px solid var(--border-color); padding:14px; border-radius:var(--radius-sm); background:var(--surface-card);">
+                            <div style="font-weight:700; font-size:0.85rem; color:var(--accent-primary); margin-bottom:6px;">Supported AST Definition Types</div>
+                            <div id="compat-supported-types" style="font-size:0.78rem; line-height:1.5; color:var(--text-secondary);">Loading...</div>
+                            <div style="font-weight:700; font-size:0.85rem; color:var(--accent-primary); margin-top:10px; margin-bottom:4px;">Supported Built-in Functions</div>
+                            <div id="compat-supported-functions" style="font-size:0.75rem; font-family:var(--font-mono); color:var(--accent-secondary); max-height:120px; overflow-y:auto;">Loading...</div>
                         </div>
-                        <div style="border:1px solid #ffcdd2; padding:10px; border-radius:3px; background:#fffafa;">
-                            <div style="font-weight:bold; font-size:0.82rem; color:#c62828; margin-bottom:6px;">Unsupported Formats &amp; Security Boundaries</div>
-                            <div id="compat-unsupported-features" style="font-size:0.78rem; line-height:1.45; color:#555;">Loading...</div>
+                        <div style="border:1px solid var(--border-color); padding:14px; border-radius:var(--radius-sm); background:var(--surface-card);">
+                            <div style="font-weight:700; font-size:0.85rem; color:var(--accent-danger); margin-bottom:6px;">Unsupported Formats &amp; Security Boundaries</div>
+                            <div id="compat-unsupported-features" style="font-size:0.78rem; line-height:1.45; color:var(--text-secondary);">Loading...</div>
                         </div>
                     </div>
                 </div>
             </div>
 
-        </section>
+        </main>
 
-        <!-- Right Function Keys Sticky Sidebar -->
+        <!-- 2C. CONTEXTUAL ACTION PANEL (F1 - F12 Sticky Shortcuts Bar) -->
         <aside class="tally-fkey-sidebar">
             <button class="fkey-btn" onclick="openHelpModal()"><span class="fkey-label">F1</span>Help</button>
             <button class="fkey-btn" onclick="openDatePrompt()"><span class="fkey-label">F2</span>Date</button>
@@ -495,12 +840,12 @@
             <button class="fkey-btn" onclick="runPayrollPrompt()"><span class="fkey-label">Ctrl+F4</span>Payroll</button>
             <button class="fkey-btn" onclick="openFeaturesModal()"><span class="fkey-label">F11</span>Features</button>
             <button class="fkey-btn" onclick="openTDLStudio()"><span class="fkey-label">F12</span>TDL Studio</button>
-            <button class="fkey-btn" onclick="goBackToGateway()"><span class="fkey-label">Esc</span>Gateway</button>
+            <button class="fkey-btn" onclick="goBackToGateway()"><span class="fkey-label">Esc</span>Dashboard</button>
         </aside>
 
-    </main>
+    </div>
 
-    <!-- 3. Bottom Calculator Drawer (Ctrl+N / Ctrl+M) -->
+    <!-- 3. BOTTOM CALCULATOR DRAWER (Ctrl+N / Ctrl+M) -->
     <div class="tally-calculator-drawer" id="calc-drawer">
         <div class="calc-header">
             <span>TALLY CALCULATOR (Ctrl+N to focus / Ctrl+M or Esc to return)</span>
@@ -508,65 +853,87 @@
         </div>
         <div class="calc-history" id="calc-history"></div>
         <div class="calc-io-row">
-            <span style="font-weight:bold; color:#ffeb3b;">CALC &gt;</span>
+            <span style="font-weight:700; color:var(--accent-primary);">CALC &gt;</span>
             <input type="text" id="calc-input" class="calc-input" placeholder="Type formula e.g. (15000 * 1.18) or 45000 / 3..." onkeydown="handleCalcKeyDown(event)">
         </div>
     </div>
 
-    <!-- 4. Bottom Status Bar -->
+    <!-- 4. BOTTOM APP STATUS BAR -->
     <footer class="tally-bottom-status-bar">
-        <div id="breadcrumb">Gateway of Tally</div>
-        <div style="display:flex; gap: 15px;">
-            <span>Mode: <strong>100% Offline Standalone</strong></span>
+        <div id="breadcrumb" style="font-weight:600; color:var(--text-primary);">TallyForge Enterprise Hub // Dashboard</div>
+        <div style="display:flex; gap: 16px; align-items:center;">
+            <span>Mode: <strong style="color:var(--accent-primary);">100% Offline Standalone</strong></span>
             <span>TallyForge Engine // v1.0.0 (Reverse Engineered. Rebuilt. Reimagined.)</span>
         </div>
     </footer>
 
-    <!-- 5. Alt+G "Go To" Quick Navigation Modal -->
-    <div class="modal-overlay" id="goto-modal" onclick="if(event.target===this) closeGoToModal()">
-        <div class="modal-dialog">
-            <div style="background:#004d40; color:#fff; padding:8px 12px; font-weight:bold; display:flex; justify-content:space-between;">
-                <span>Go To - Quick Search (Alt+G)</span>
-                <span style="cursor:pointer;" onclick="closeGoToModal()">✕</span>
+    <!-- 5. GLOBAL COMMAND PALETTE MODAL (Ctrl+K / Cmd+K / Alt+G) -->
+    <div class="tf-cmd-overlay" id="command-palette-modal" onclick="if(event.target===this) closeCommandPalette()">
+        <div class="tf-cmd-box">
+            <div class="tf-cmd-search-row">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent-primary);">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                <input type="text" id="cmd-palette-input" class="tf-cmd-search-input" placeholder="Type a command, report, voucher, or ledger..." oninput="filterCommandPalette()" onkeydown="handleCommandPaletteKey(event)">
+                <span class="tf-kbd-pill">Esc</span>
             </div>
-            <div style="padding:10px;">
-                <input type="text" id="goto-search-input" class="tally-input" style="width:100%; font-size:1rem; margin-bottom:8px;" placeholder="Search report, voucher, or master..." oninput="filterGoToItems()" onkeydown="handleGoToKey(event)">
-                <div style="max-height:260px; overflow-y:auto; border:1px solid #b2dfdb;" id="goto-results-list"></div>
+            <div class="tf-cmd-results" id="cmd-palette-results">
+                <!-- Dynamically populated commands -->
+            </div>
+            <div class="tf-cmd-footer">
+                <span>Navigate with <kbd>↑</kbd> <kbd>↓</kbd></span>
+                <span>Select with <kbd>↵ Enter</kbd></span>
+                <span>TallyForge Quick Actions</span>
             </div>
         </div>
     </div>
 
-    <!-- 6. Company Management Modal (K: Company) -->
+    <!-- 6. ALT+G "GO TO" MODAL (Kept for compatibility) -->
+    <div class="modal-overlay" id="goto-modal" onclick="if(event.target===this) closeGoToModal()">
+        <div class="modal-dialog" style="width: 520px;">
+            <div style="background:var(--surface-subtle); color:var(--text-primary); border-bottom:1px solid var(--border-color); padding:10px 14px; font-weight:700; display:flex; justify-content:space-between;">
+                <span>Go To - Quick Search (Alt+G)</span>
+                <span style="cursor:pointer;" onclick="closeGoToModal()">✕</span>
+            </div>
+            <div style="padding:14px;">
+                <input type="text" id="goto-search-input" class="tally-input" style="width:100%; font-size:1rem; margin-bottom:10px;" placeholder="Search report, voucher, or master..." oninput="filterGoToItems()" onkeydown="handleGoToKey(event)">
+                <div style="max-height:280px; overflow-y:auto; border:1px solid var(--border-color); border-radius:var(--radius-xs);" id="goto-results-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 7. COMPANY MANAGEMENT MODAL (K: Company / F3) -->
     <div class="modal-overlay" id="company-modal" onclick="if(event.target===this) closeCompanyModal()">
-        <div class="modal-dialog" style="width: 620px; max-height: 90vh; display:flex; flex-direction:column;">
-            <div style="background:#004d40; color:#fff; padding:8px 12px; font-weight:bold; display:flex; justify-content:space-between;">
-                <span>Company Management (Alt+K)</span>
+        <div class="modal-dialog" style="width: 640px; max-height: 90vh; display:flex; flex-direction:column;">
+            <div style="background:var(--surface-subtle); color:var(--text-primary); border-bottom:1px solid var(--border-color); padding:10px 16px; font-weight:700; display:flex; justify-content:space-between;">
+                <span>Company Management (Alt+K / F3)</span>
                 <span style="cursor:pointer;" onclick="closeCompanyModal()">✕</span>
             </div>
             <!-- Sub-tabs: Select | Alter | Create | Security | Users | Group -->
-            <div style="display:flex; background:#eceff1; border-bottom:1px solid #ccc; font-size:0.8rem; overflow-x:auto;">
-                <button class="top-menu-btn" style="color:#004d40; font-weight:bold; border-bottom:2px solid #004d40;" id="comp-tab-select-btn" onclick="switchCompanyTab('select')">Select Company</button>
-                <button class="top-menu-btn" style="color:#555;" id="comp-tab-alter-btn" onclick="switchCompanyTab('alter')">Alter Active</button>
-                <button class="top-menu-btn" style="color:#555;" id="comp-tab-create-btn" onclick="switchCompanyTab('create')">Create New</button>
-                <button class="top-menu-btn" style="color:#555;" id="comp-tab-sec-btn" onclick="switchCompanyTab('security')">Security</button>
-                <button class="top-menu-btn" style="color:#555;" id="comp-tab-users-btn" onclick="switchCompanyTab('users')">Users</button>
-                <button class="top-menu-btn" style="color:#555;" id="comp-tab-group-btn" onclick="switchCompanyTab('group')">Group Company</button>
+            <div style="display:flex; background:var(--surface-subtle); border-bottom:1px solid var(--border-color); font-size:0.8rem; overflow-x:auto;">
+                <button class="top-menu-btn" style="color:var(--accent-primary); font-weight:700; border-bottom:2px solid var(--accent-primary);" id="comp-tab-select-btn" onclick="switchCompanyTab('select')">Select Company</button>
+                <button class="top-menu-btn" style="color:var(--text-secondary);" id="comp-tab-alter-btn" onclick="switchCompanyTab('alter')">Alter Active</button>
+                <button class="top-menu-btn" style="color:var(--text-secondary);" id="comp-tab-create-btn" onclick="switchCompanyTab('create')">Create New</button>
+                <button class="top-menu-btn" style="color:var(--text-secondary);" id="comp-tab-sec-btn" onclick="switchCompanyTab('security')">Security</button>
+                <button class="top-menu-btn" style="color:var(--text-secondary);" id="comp-tab-users-btn" onclick="switchCompanyTab('users')">Users</button>
+                <button class="top-menu-btn" style="color:var(--text-secondary);" id="comp-tab-group-btn" onclick="switchCompanyTab('group')">Group Company</button>
             </div>
-            <div style="padding:14px; overflow-y:auto; flex:1;">
+            <div style="padding:16px; overflow-y:auto; flex:1;">
                 <!-- Tab 1: Select / Switch / Shut / Delete -->
                 <div id="comp-pane-select">
-                    <div style="font-weight:bold; font-size:0.85rem; color:#004d40; margin-bottom:6px;">Select / Switch Active Company:</div>
-                    <div id="company-list-container" style="max-height:160px; overflow-y:auto; border:1px solid #b2dfdb; padding:6px; margin-bottom:12px;"></div>
+                    <div style="font-weight:700; font-size:0.85rem; color:var(--text-primary); margin-bottom:8px;">Select / Switch Active Company:</div>
+                    <div id="company-list-container" style="max-height:160px; overflow-y:auto; border:1px solid var(--border-color); border-radius:var(--radius-xs); padding:6px; margin-bottom:12px;"></div>
                     <div style="display:flex; gap:8px;">
-                        <button class="btn-tally-primary" onclick="shutActiveCompany()" style="flex:1; background:#f57f17;">Shut Active Company</button>
-                        <button class="btn-tally-primary" onclick="deleteActiveCompany()" style="flex:1; background:#c62828;">Delete Active Company</button>
+                        <button class="btn-tally-primary" onclick="shutActiveCompany()" style="flex:1; background:var(--accent-warning); color:#fff;">Shut Active Company</button>
+                        <button class="btn-tally-primary" onclick="deleteActiveCompany()" style="flex:1; background:var(--accent-danger); color:#fff;">Delete Active Company</button>
                     </div>
                 </div>
 
                 <!-- Tab 2: Alter Active Company -->
                 <div id="comp-pane-alter" style="display:none;">
-                    <div style="font-weight:bold; font-size:0.85rem; color:#004d40; margin-bottom:6px;">Alter Company Information:</div>
-                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+                    <div style="font-weight:700; font-size:0.85rem; color:var(--text-primary); margin-bottom:8px;">Alter Company Information:</div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
                         <input type="text" id="alter-comp-name" class="tally-input" placeholder="Company Name">
                         <input type="text" id="alter-comp-gstin" class="tally-input" placeholder="GSTIN">
                         <input type="text" id="alter-comp-state" class="tally-input" placeholder="State">
@@ -576,13 +943,13 @@
                         <input type="date" id="alter-comp-fy-from" class="tally-input" placeholder="FY From">
                         <input type="date" id="alter-comp-fy-to" class="tally-input" placeholder="FY To">
                     </div>
-                    <button class="btn-tally-primary" onclick="submitAlterCompany()" style="margin-top:10px; width:100%; background:#00796b;">Save Company Changes</button>
+                    <button class="btn-tally-primary" onclick="submitAlterCompany()" style="margin-top:12px; width:100%; background:var(--accent-primary);">Save Company Changes</button>
                 </div>
 
                 <!-- Tab 3: Create Company -->
                 <div id="comp-pane-create" style="display:none;">
-                    <div style="font-weight:bold; font-size:0.85rem; color:#004d40; margin-bottom:6px;">Create New Company Entity:</div>
-                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px;">
+                    <div style="font-weight:700; font-size:0.85rem; color:var(--text-primary); margin-bottom:8px;">Create New Company Entity:</div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
                         <input type="text" id="new-comp-name" class="tally-input" placeholder="Company Name">
                         <input type="text" id="new-comp-gstin" class="tally-input" placeholder="GSTIN (e.g. 29AABCT1332L1Z5)">
                         <input type="text" id="new-comp-state" class="tally-input" placeholder="State" value="Karnataka">
@@ -590,25 +957,25 @@
                         <input type="text" id="new-comp-address" class="tally-input" placeholder="Business Address" value="Industrial Area, Bengaluru">
                         <input type="text" id="new-comp-pin" class="tally-input" placeholder="Pincode" value="560001">
                     </div>
-                    <button class="btn-tally-primary" onclick="submitCreateCompany()" style="margin-top:10px; width:100%; background:#2e7d32;">Create &amp; Select Company</button>
+                    <button class="btn-tally-primary" onclick="submitCreateCompany()" style="margin-top:12px; width:100%; background:var(--accent-primary);">Create &amp; Select Company</button>
                 </div>
 
                 <!-- Tab 4: Security Control -->
                 <div id="comp-pane-security" style="display:none;">
-                    <div style="font-weight:bold; font-size:0.85rem; color:#004d40; margin-bottom:6px;">Company Security &amp; TallyVault:</div>
-                    <p style="font-size:0.78rem; color:#555; margin-bottom:8px;">Control access permissions and set vault encryption password for company books.</p>
+                    <div style="font-weight:700; font-size:0.85rem; color:var(--text-primary); margin-bottom:6px;">Company Security &amp; TallyVault:</div>
+                    <p style="font-size:0.78rem; color:var(--text-secondary); margin-bottom:8px;">Control access permissions and set vault encryption password for company books.</p>
                     <label style="font-size:0.82rem;"><input type="checkbox" id="comp-sec-enabled"> Enable TallyVault Protection</label>
                     <div style="margin-top:8px;">
-                        <input type="password" id="comp-sec-password" class="tally-input" placeholder="New Vault Password" style="width:100%; margin-bottom:6px;">
-                        <button class="btn-tally-primary" onclick="submitCompanySecurity()" style="width:100%; background:#00695c;">Update Security Settings</button>
+                        <input type="password" id="comp-sec-password" class="tally-input" placeholder="New Vault Password" style="width:100%; margin-bottom:8px;">
+                        <button class="btn-tally-primary" onclick="submitCompanySecurity()" style="width:100%; background:var(--accent-primary);">Update Security Settings</button>
                     </div>
                 </div>
 
                 <!-- Tab 5: User Management -->
                 <div id="comp-pane-users" style="display:none;">
-                    <div style="font-weight:bold; font-size:0.85rem; color:#004d40; margin-bottom:6px;">User Accounts &amp; RBAC Roles:</div>
-                    <div id="user-accounts-list" style="max-height:120px; overflow-y:auto; border:1px solid #b2dfdb; padding:6px; margin-bottom:8px;"></div>
-                    <div style="font-size:0.8rem; font-weight:bold; margin-bottom:4px;">Add New User:</div>
+                    <div style="font-weight:700; font-size:0.85rem; color:var(--text-primary); margin-bottom:6px;">User Accounts &amp; RBAC Roles:</div>
+                    <div id="user-accounts-list" style="max-height:120px; overflow-y:auto; border:1px solid var(--border-color); border-radius:var(--radius-xs); padding:6px; margin-bottom:8px;"></div>
+                    <div style="font-size:0.8rem; font-weight:700; margin-bottom:4px;">Add New User:</div>
                     <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px;">
                         <input type="text" id="new-user-name" class="tally-input" placeholder="Username">
                         <input type="password" id="new-user-pwd" class="tally-input" placeholder="Password">
@@ -619,199 +986,199 @@
                             <option value="Viewer">Viewer</option>
                         </select>
                     </div>
-                    <button class="btn-tally-primary" onclick="submitCreateUser()" style="margin-top:6px; width:100%; background:#2e7d32;">Add User</button>
+                    <button class="btn-tally-primary" onclick="submitCreateUser()" style="margin-top:8px; width:100%; background:var(--accent-primary);">Add User</button>
                 </div>
 
                 <!-- Tab 6: Group Company & Consolidation -->
                 <div id="comp-pane-group" style="display:none;">
-                    <div style="font-weight:bold; font-size:0.85rem; color:#004d40; margin-bottom:6px;">Create Group Company &amp; Financial Consolidation:</div>
-                    <p style="font-size:0.78rem; color:#555; margin-bottom:8px;">Combine multiple independent companies into a single consolidated corporate group holding.</p>
+                    <div style="font-weight:700; font-size:0.85rem; color:var(--text-primary); margin-bottom:6px;">Create Group Company &amp; Financial Consolidation:</div>
+                    <p style="font-size:0.78rem; color:var(--text-secondary); margin-bottom:8px;">Combine multiple independent companies into a single consolidated corporate group holding.</p>
                     <div style="margin-bottom:8px;">
-                        <label style="font-size:0.8rem; font-weight:bold;">Group Company Name:</label>
+                        <label style="font-size:0.8rem; font-weight:700;">Group Company Name:</label>
                         <input type="text" id="group-comp-name" class="tally-input" placeholder="e.g. Apex Holdings Group" style="width:100%; margin-top:2px;">
                     </div>
-                    <div style="font-size:0.8rem; font-weight:bold; margin-bottom:4px;">Select Member Companies to Consolidate:</div>
-                    <div id="group-comp-members-list" style="max-height:120px; overflow-y:auto; border:1px solid #b2dfdb; padding:6px; margin-bottom:8px; background:#fafafa;"></div>
-                    <button class="btn-tally-primary" onclick="submitCreateGroupCompany()" style="width:100%; background:#00796b;">Create Group Company &amp; Consolidate</button>
+                    <div style="font-size:0.8rem; font-weight:700; margin-bottom:4px;">Select Member Companies to Consolidate:</div>
+                    <div id="group-comp-members-list" style="max-height:120px; overflow-y:auto; border:1px solid var(--border-color); border-radius:var(--radius-xs); padding:6px; margin-bottom:8px;"></div>
+                    <button class="btn-tally-primary" onclick="submitCreateGroupCompany()" style="width:100%; background:var(--accent-primary);">Create Group Company &amp; Consolidate</button>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- 7. Data Management & Year-End Modal (Y: Data) -->
+    <!-- 8. DATA MANAGEMENT MODAL (Y: Data) -->
     <div class="modal-overlay" id="data-modal" onclick="if(event.target===this) closeDataModal()">
-        <div class="modal-dialog" style="width: 580px; max-height:90vh; display:flex; flex-direction:column;">
-            <div style="background:#004d40; color:#fff; padding:8px 12px; font-weight:bold; display:flex; justify-content:space-between;">
+        <div class="modal-dialog" style="width: 600px; max-height:90vh; display:flex; flex-direction:column;">
+            <div style="background:var(--surface-subtle); color:var(--text-primary); border-bottom:1px solid var(--border-color); padding:10px 16px; font-weight:700; display:flex; justify-content:space-between;">
                 <span>Data Management &amp; Reliability (Alt+Y)</span>
                 <span style="cursor:pointer;" onclick="closeDataModal()">✕</span>
             </div>
-            <div style="padding:14px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:10px;">
+            <div style="padding:16px; overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:12px;">
                 <!-- 1. Backup & Restore -->
-                <div style="border:1px solid #b2dfdb; padding:10px; background:#fafdfc;">
-                    <div style="font-weight:bold; font-size:0.85rem; color:#004d40; margin-bottom:4px;">Backup &amp; Restore:</div>
+                <div style="border:1px solid var(--border-color); border-radius:var(--radius-sm); padding:12px; background:var(--surface-card);">
+                    <div style="font-weight:700; font-size:0.85rem; color:var(--accent-primary); margin-bottom:4px;">Backup &amp; Restore:</div>
                     <div style="display:flex; gap:8px;">
-                        <button class="btn-tally-primary" onclick="createBackup();" style="flex:1; background:#004d40;">Create Backup (SHA-256)</button>
-                        <button class="btn-tally-primary" onclick="restoreBackupPrompt();" style="flex:1; background:#37474f;">Restore Backup</button>
+                        <button class="btn-tally-primary" onclick="createBackup();" style="flex:1; background:var(--accent-primary);">Create Backup (SHA-256)</button>
+                        <button class="btn-tally-primary" onclick="restoreBackupPrompt();" style="flex:1; background:var(--surface-hover); color:var(--text-primary); border:1px solid var(--border-color);">Restore Backup</button>
                     </div>
                 </div>
 
                 <!-- 2. Data Integrity Verification & Repair -->
-                <div style="border:1px solid #b2dfdb; padding:10px; background:#fafdfc;">
-                    <div style="font-weight:bold; font-size:0.85rem; color:#004d40; margin-bottom:4px;">Data Verification &amp; Repair:</div>
-                    <p style="font-size:0.75rem; color:#555; margin-bottom:6px;">Runs SQLite PRAGMA checks, foreign key checks, and double-entry equilibrium audit.</p>
+                <div style="border:1px solid var(--border-color); border-radius:var(--radius-sm); padding:12px; background:var(--surface-card);">
+                    <div style="font-weight:700; font-size:0.85rem; color:var(--accent-primary); margin-bottom:4px;">Data Verification &amp; Repair:</div>
+                    <p style="font-size:0.75rem; color:var(--text-secondary); margin-bottom:6px;">Runs SQLite PRAGMA checks, foreign key checks, and double-entry equilibrium audit.</p>
                     <div style="display:flex; gap:8px; margin-bottom:6px;">
-                        <button class="btn-tally-primary" onclick="runDataVerification();" style="flex:1; background:#00796b;">Verify Data Integrity</button>
-                        <button class="btn-tally-primary" onclick="runDataRepair();" style="flex:1; background:#f57f17;">Repair &amp; Reindex (Safe Snapshot)</button>
+                        <button class="btn-tally-primary" onclick="runDataVerification();" style="flex:1; background:var(--accent-secondary);">Verify Data Integrity</button>
+                        <button class="btn-tally-primary" onclick="runDataRepair();" style="flex:1; background:var(--accent-warning); color:#fff;">Repair &amp; Reindex (Safe Snapshot)</button>
                     </div>
-                    <div id="data-verify-results" style="font-size:0.75rem; max-height:100px; overflow-y:auto; border:1px solid #eee; padding:4px; display:none;"></div>
+                    <div id="data-verify-results" style="font-size:0.75rem; max-height:100px; overflow-y:auto; border:1px solid var(--border-color); padding:6px; display:none;"></div>
                 </div>
 
                 <!-- 3. Year-End & Split FY -->
-                <div style="border:1px solid #b2dfdb; padding:10px; background:#fafdfc;">
-                    <div style="font-weight:bold; font-size:0.85rem; color:#004d40; margin-bottom:4px;">Year-End Closing &amp; Financial Split:</div>
+                <div style="border:1px solid var(--border-color); border-radius:var(--radius-sm); padding:12px; background:var(--surface-card);">
+                    <div style="font-weight:700; font-size:0.85rem; color:var(--accent-primary); margin-bottom:4px;">Year-End Closing &amp; Financial Split:</div>
                     <div style="display:flex; gap:8px;">
-                        <button class="btn-tally-primary" onclick="promptCloseFY()" style="flex:1; background:#00695c;">Year-End Closing</button>
-                        <button class="btn-tally-primary" onclick="promptSplitFY()" style="flex:1; background:#d84315;">Split FY (Archive)</button>
+                        <button class="btn-tally-primary" onclick="promptCloseFY()" style="flex:1; background:var(--accent-primary);">Year-End Closing</button>
+                        <button class="btn-tally-primary" onclick="promptSplitFY()" style="flex:1; background:var(--accent-warning); color:#fff;">Split FY (Archive)</button>
                     </div>
                 </div>
 
                 <!-- 4. Audit History -->
-                <div style="border:1px solid #b2dfdb; padding:10px; background:#fafdfc;">
-                    <div style="font-weight:bold; font-size:0.85rem; color:#004d40; margin-bottom:4px;">Statutory Audit Trail (Edit Log):</div>
-                    <button class="btn-tally-primary" onclick="openAuditHistoryModal();" style="width:100%; background:#455a64;">View Audit History Log</button>
+                <div style="border:1px solid var(--border-color); border-radius:var(--radius-sm); padding:12px; background:var(--surface-card);">
+                    <div style="font-weight:700; font-size:0.85rem; color:var(--accent-primary); margin-bottom:4px;">Statutory Audit Trail (Edit Log):</div>
+                    <button class="btn-tally-primary" onclick="openAuditHistoryModal();" style="width:100%; background:var(--surface-hover); color:var(--text-primary); border:1px solid var(--border-color);">View Audit History Log</button>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- 8. Statutory & Electronic Invoicing Export Modal (E: Export) -->
+    <!-- 9. EXPORT MODAL (E: Export) -->
     <div class="modal-overlay" id="export-modal" onclick="if(event.target===this) closeExportModal()">
-        <div class="modal-dialog" style="width: 480px;">
-            <div style="background:#004d40; color:#fff; padding:8px 12px; font-weight:bold; display:flex; justify-content:space-between;">
-                <span>Export & Statutory Returns (Alt+E)</span>
+        <div class="modal-dialog" style="width: 500px;">
+            <div style="background:var(--surface-subtle); color:var(--text-primary); border-bottom:1px solid var(--border-color); padding:10px 16px; font-weight:700; display:flex; justify-content:space-between;">
+                <span>Export &amp; Statutory Returns (Alt+E)</span>
                 <span style="cursor:pointer;" onclick="closeExportModal()">✕</span>
             </div>
-            <div style="padding:14px; display:flex; flex-direction:column; gap:10px;">
-                <label style="font-size:0.8rem; font-weight:bold;">Voucher ID for e-Invoice / e-Way Bill:</label>
+            <div style="padding:16px; display:flex; flex-direction:column; gap:10px;">
+                <label style="font-size:0.8rem; font-weight:700;">Voucher ID for e-Invoice / e-Way Bill:</label>
                 <input type="number" id="export-voucher-id" class="tally-input" value="1" placeholder="Enter Voucher ID">
 
-                <button class="btn-tally-primary" onclick="exportEInvoiceJSON()" style="background:#00796b;">Generate e-Invoice JSON (NIC v1.1)</button>
-                <button class="btn-tally-primary" onclick="exportEWayBillJSON()" style="background:#00695c;">Generate e-Way Bill JSON (NIC Schema)</button>
-                <button class="btn-tally-primary" onclick="downloadGSTR1JSON(); closeExportModal();" style="background:#2e7d32;">Download GSTR-1 Return (GSTN Schema)</button>
-                <button class="btn-tally-primary" onclick="exportDataCSV(); closeExportModal();" style="background:#455a64;">Export Current Report to CSV</button>
-                <button class="btn-tally-primary" onclick="downloadTallyXML(); closeExportModal();" style="background:#004d40;">Download Full Tally XML (Data Interchange)</button>
+                <button class="btn-tally-primary" onclick="exportEInvoiceJSON()" style="background:var(--accent-secondary);">Generate e-Invoice JSON (NIC v1.1)</button>
+                <button class="btn-tally-primary" onclick="exportEWayBillJSON()" style="background:var(--accent-secondary);">Generate e-Way Bill JSON (NIC Schema)</button>
+                <button class="btn-tally-primary" onclick="downloadGSTR1JSON(); closeExportModal();" style="background:var(--accent-primary);">Download GSTR-1 Return (GSTN Schema)</button>
+                <button class="btn-tally-primary" onclick="exportDataCSV(); closeExportModal();" style="background:var(--surface-hover); color:var(--text-primary); border:1px solid var(--border-color);">Export Current Report to CSV</button>
+                <button class="btn-tally-primary" onclick="downloadTallyXML(); closeExportModal();" style="background:var(--accent-primary);">Download Full Tally XML (Data Interchange)</button>
             </div>
         </div>
     </div>
 
-    <!-- 9. Print Preview Modal (P: Print) -->
+    <!-- 10. PRINT PREVIEW MODAL (P: Print) -->
     <div class="modal-overlay" id="print-modal" onclick="if(event.target===this) closePrintModal()">
-        <div class="modal-dialog" style="width: 720px; max-height:90vh; display:flex; flex-direction:column;">
-            <div style="background:#004d40; color:#fff; padding:8px 12px; font-weight:bold; display:flex; justify-content:space-between;">
-                <span>Print Preview - Formal Tax Invoice & Documents (Alt+P)</span>
+        <div class="modal-dialog" style="width: 760px; max-height:90vh; display:flex; flex-direction:column;">
+            <div style="background:var(--surface-subtle); color:var(--text-primary); border-bottom:1px solid var(--border-color); padding:10px 16px; font-weight:700; display:flex; justify-content:space-between;">
+                <span>Print Preview — Tax Invoice &amp; Documents (Alt+P)</span>
                 <span style="cursor:pointer;" onclick="closePrintModal()">✕</span>
             </div>
-            <div style="padding:8px 12px; background:#eceff1; display:flex; gap:10px; align-items:center;">
-                <label style="font-size:0.8rem; font-weight:bold;">Document:</label>
+            <div style="padding:8px 14px; background:var(--surface-subtle); display:flex; gap:10px; align-items:center; border-bottom:1px solid var(--border-color);">
+                <label style="font-size:0.8rem; font-weight:700;">Document:</label>
                 <select id="print-doc-type" class="tally-input" onchange="renderPrintPreviewDocument()">
                     <option value="invoice">B2B Tax Invoice</option>
                     <option value="payslip">Monthly Payslip</option>
                     <option value="payment_advice">Payment Advice Slip</option>
                 </select>
                 <input type="number" id="print-ref-id" class="tally-input" value="1" style="width:80px;" onchange="renderPrintPreviewDocument()">
-                <button class="btn-tally-primary" onclick="window.print()" style="margin-left:auto; background:#2e7d32;">Print to Paper / PDF</button>
+                <button class="btn-tally-primary" onclick="window.print()" style="margin-left:auto; background:var(--accent-primary);">Print to Paper / PDF</button>
             </div>
-            <div id="print-preview-content" style="padding:20px; background:#fff; overflow-y:auto; flex:1; font-family:'Courier New', monospace; font-size:0.85rem; border-top:1px solid #ccc;">
+            <div id="print-preview-content" style="padding:20px; background:#fff; color:#111; overflow-y:auto; flex:1; font-family:var(--font-mono); font-size:0.85rem;">
             </div>
         </div>
     </div>
 
-    <!-- 10. Exchange & Multi-Currency Modal (Z: Exchange / Alt+Z) -->
+    <!-- 11. EXCHANGE MODAL (Z: Exchange) -->
     <div class="modal-overlay" id="exchange-modal" onclick="if(event.target===this) closeExchangeModal()">
-        <div class="modal-dialog" style="width: 560px;">
-            <div style="background:#004d40; color:#fff; padding:8px 12px; font-weight:bold; display:flex; justify-content:space-between;">
-                <span>Exchange & Forex Management (Alt+Z)</span>
+        <div class="modal-dialog" style="width: 580px;">
+            <div style="background:var(--surface-subtle); color:var(--text-primary); border-bottom:1px solid var(--border-color); padding:10px 16px; font-weight:700; display:flex; justify-content:space-between;">
+                <span>Exchange &amp; Forex Management (Alt+Z)</span>
                 <span style="cursor:pointer;" onclick="closeExchangeModal()">✕</span>
             </div>
-            <div style="padding:14px; display:flex; flex-direction:column; gap:12px;">
-                <div style="font-weight:bold; font-size:0.85rem; color:#004d40;">Configured Currencies & Exchange Rates:</div>
-                <div id="currency-list-container" style="max-height:130px; overflow-y:auto; border:1px solid #b2dfdb;">
+            <div style="padding:16px; display:flex; flex-direction:column; gap:12px;">
+                <div style="font-weight:700; font-size:0.85rem; color:var(--text-primary);">Configured Currencies &amp; Exchange Rates:</div>
+                <div id="currency-list-container" style="max-height:130px; overflow-y:auto; border:1px solid var(--border-color); border-radius:var(--radius-xs);">
                     <table class="tally-data-table">
                         <thead><tr><th>Symbol</th><th>Formal Name</th><th>Rate (INR)</th><th>Base</th></tr></thead>
                         <tbody id="currency-table-body"></tbody>
                     </table>
                 </div>
 
-                <div style="border:1px solid #b2dfdb; padding:10px; background:#fafdfc;">
-                    <div style="font-weight:bold; font-size:0.82rem; color:#004d40; margin-bottom:6px;">Add / Update Currency Rate:</div>
+                <div style="border:1px solid var(--border-color); padding:12px; background:var(--surface-card); border-radius:var(--radius-sm);">
+                    <div style="font-weight:700; font-size:0.82rem; color:var(--accent-primary); margin-bottom:6px;">Add / Update Currency Rate:</div>
                     <div style="display:grid; grid-template-columns:1fr 2fr 1fr; gap:6px;">
                         <input type="text" id="forex-sym" class="tally-input" placeholder="Symbol (e.g. $)">
                         <input type="text" id="forex-name" class="tally-input" placeholder="Formal Name (e.g. US Dollar)">
                         <input type="number" id="forex-rate" class="tally-input" step="0.01" placeholder="Rate (INR)">
                     </div>
-                    <button class="btn-tally-primary" onclick="submitUpdateCurrency()" style="margin-top:8px; width:100%; background:#00695c;">Update Exchange Rate</button>
+                    <button class="btn-tally-primary" onclick="submitUpdateCurrency()" style="margin-top:8px; width:100%; background:var(--accent-primary);">Update Exchange Rate</button>
                 </div>
 
-                <div style="border:1px solid #b2dfdb; padding:10px; background:#fafdfc;">
-                    <div style="font-weight:bold; font-size:0.82rem; color:#004d40; margin-bottom:4px;">Forex Unadjusted Gain / Loss:</div>
-                    <div id="forex-analysis-summary" style="font-size:0.8rem; color:#333;">Loading forex calculations...</div>
+                <div style="border:1px solid var(--border-color); padding:12px; background:var(--surface-card); border-radius:var(--radius-sm);">
+                    <div style="font-weight:700; font-size:0.82rem; color:var(--accent-primary); margin-bottom:4px;">Forex Unadjusted Gain / Loss:</div>
+                    <div id="forex-analysis-summary" style="font-size:0.8rem; color:var(--text-secondary);">Loading forex calculations...</div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- 11. Import Data & Statements Modal (O: Import / Alt+O) -->
+    <!-- 12. IMPORT MODAL (O: Import) -->
     <div class="modal-overlay" id="import-modal" onclick="if(event.target===this) closeImportModal()">
-        <div class="modal-dialog" style="width: 540px;">
-            <div style="background:#004d40; color:#fff; padding:8px 12px; font-weight:bold; display:flex; justify-content:space-between;">
-                <span>Import Data & Statements (Alt+O)</span>
+        <div class="modal-dialog" style="width: 560px;">
+            <div style="background:var(--surface-subtle); color:var(--text-primary); border-bottom:1px solid var(--border-color); padding:10px 16px; font-weight:700; display:flex; justify-content:space-between;">
+                <span>Import Data &amp; Statements (Alt+O)</span>
                 <span style="cursor:pointer;" onclick="closeImportModal()">✕</span>
             </div>
-            <div style="padding:14px; display:flex; flex-direction:column; gap:12px;">
-                <div style="border:1px solid #b2dfdb; padding:10px; background:#fafdfc;">
-                    <div style="font-weight:bold; font-size:0.85rem; color:#004d40; margin-bottom:4px;">1. Bank Statement CSV Reconciliation (BRS)</div>
-                    <p style="font-size:0.78rem; color:#555; margin:0 0 6px 0;">Upload or paste CSV bank statement rows: <code>Date, Narration, ChqNo, Debit, Credit, Balance</code></p>
+            <div style="padding:16px; display:flex; flex-direction:column; gap:12px;">
+                <div style="border:1px solid var(--border-color); padding:12px; background:var(--surface-card); border-radius:var(--radius-sm);">
+                    <div style="font-weight:700; font-size:0.85rem; color:var(--accent-primary); margin-bottom:4px;">1. Bank Statement CSV Reconciliation (BRS)</div>
+                    <p style="font-size:0.78rem; color:var(--text-secondary); margin:0 0 6px 0;">Upload or paste CSV bank statement rows: <code>Date, Narration, ChqNo, Debit, Credit, Balance</code></p>
                     <div style="display:flex; gap:6px; margin-bottom:6px;">
                         <select id="import-bank-ledger" class="tally-input" style="flex:1;">
                             <option value="HDFC Bank">HDFC Bank</option>
                             <option value="State Bank of India">State Bank of India</option>
                         </select>
-                        <button class="btn-tally-primary" onclick="insertSampleCSVStatement()" style="background:#546e7a; font-size:0.75rem;">Sample CSV</button>
+                        <button class="btn-tally-primary" onclick="insertSampleCSVStatement()" style="background:var(--surface-hover); color:var(--text-primary); border:1px solid var(--border-color); font-size:0.75rem;">Sample CSV</button>
                     </div>
-                    <textarea id="import-csv-text" class="tally-input" style="width:100%; height:70px; font-family:monospace; font-size:0.75rem;" placeholder="Date,Narration,ChqNo,Debit,Credit,Balance&#10;2026-05-15,NEFT-ABC Pvt,CHQ-1001,0,50000,50000"></textarea>
-                    <button class="btn-tally-primary" onclick="submitImportCSV()" style="margin-top:6px; width:100%; background:#00796b;">Reconcile Statement</button>
+                    <textarea id="import-csv-text" class="tally-input" style="width:100%; height:70px; font-family:var(--font-mono); font-size:0.75rem;" placeholder="Date,Narration,ChqNo,Debit,Credit,Balance&#10;2026-05-15,NEFT-ABC Pvt,CHQ-1001,0,50000,50000"></textarea>
+                    <button class="btn-tally-primary" onclick="submitImportCSV()" style="margin-top:6px; width:100%; background:var(--accent-primary);">Reconcile Statement</button>
                 </div>
 
-                <div style="border:1px solid #b2dfdb; padding:10px; background:#fafdfc;">
-                    <div style="font-weight:bold; font-size:0.85rem; color:#004d40; margin-bottom:4px;">2. Import TDL Definition (.tdl)</div>
-                    <p style="font-size:0.78rem; color:#555; margin:0 0 6px 0;">Paste custom TDL code to compile and inject dynamically into the runtime AST.</p>
-                    <textarea id="import-tdl-text" class="tally-input" style="width:100%; height:60px; font-family:monospace; font-size:0.75rem;" placeholder="[#Menu: Gateway of Tally]&#10;Add: Item: 'Custom Audit': Display: AuditEditLog"></textarea>
-                    <button class="btn-tally-primary" onclick="submitImportTDL()" style="margin-top:6px; width:100%; background:#2e7d32;">Inject TDL Definition</button>
+                <div style="border:1px solid var(--border-color); padding:12px; background:var(--surface-card); border-radius:var(--radius-sm);">
+                    <div style="font-weight:700; font-size:0.85rem; color:var(--accent-primary); margin-bottom:4px;">2. Import TDL Definition (.tdl)</div>
+                    <p style="font-size:0.78rem; color:var(--text-secondary); margin:0 0 6px 0;">Paste custom TDL code to compile and inject dynamically into the runtime AST.</p>
+                    <textarea id="import-tdl-text" class="tally-input" style="width:100%; height:60px; font-family:var(--font-mono); font-size:0.75rem;" placeholder="[#Menu: Gateway of Tally]&#10;Add: Item: 'Custom Audit': Display: AuditEditLog"></textarea>
+                    <button class="btn-tally-primary" onclick="submitImportTDL()" style="margin-top:6px; width:100%; background:var(--accent-primary);">Inject TDL Definition</button>
                 </div>
 
-                <div style="border:1px solid #b2dfdb; padding:10px; background:#fafdfc;">
-                    <div style="font-weight:bold; font-size:0.85rem; color:#004d40; margin-bottom:4px;">3. Import Existing Tally Data (Tally XML)</div>
-                    <p style="font-size:0.78rem; color:#555; margin:0 0 6px 0;">Import Masters, Ledgers, Items &amp; Vouchers exported from TallyPrime / Tally.ERP 9.</p>
-                    <textarea id="import-tally-xml-text" class="tally-input" style="width:100%; height:70px; font-family:monospace; font-size:0.75rem;" placeholder="Paste Tally XML or &lt;ENVELOPE&gt; content here..."></textarea>
+                <div style="border:1px solid var(--border-color); padding:12px; background:var(--surface-card); border-radius:var(--radius-sm);">
+                    <div style="font-weight:700; font-size:0.85rem; color:var(--accent-primary); margin-bottom:4px;">3. Import Existing Tally Data (Tally XML)</div>
+                    <p style="font-size:0.78rem; color:var(--text-secondary); margin:0 0 6px 0;">Import Masters, Ledgers, Items &amp; Vouchers exported from TallyPrime / Tally.ERP 9.</p>
+                    <textarea id="import-tally-xml-text" class="tally-input" style="width:100%; height:70px; font-family:var(--font-mono); font-size:0.75rem;" placeholder="Paste Tally XML or &lt;ENVELOPE&gt; content here..."></textarea>
                     <div style="display:flex; gap:6px; margin-top:6px;">
                         <input type="file" id="import-tally-xml-file" accept=".xml" style="font-size:0.75rem; flex:1;" onchange="handleTallyXMLFileUpload(event)">
-                        <button class="btn-tally-primary" onclick="submitImportTallyXML()" style="background:#00695c; flex:1;">Import Tally XML</button>
+                        <button class="btn-tally-primary" onclick="submitImportTallyXML()" style="background:var(--accent-primary); flex:1;">Import Tally XML</button>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- 12. Features Configuration Modal (F11: Features) -->
+    <!-- 13. FEATURES MODAL (F11: Features) -->
     <div class="modal-overlay" id="features-modal" onclick="if(event.target===this) closeFeaturesModal()">
-        <div class="modal-dialog" style="width: 580px;">
-            <div style="background:#004d40; color:#fff; padding:8px 12px; font-weight:bold; display:flex; justify-content:space-between;">
+        <div class="modal-dialog" style="width: 600px;">
+            <div style="background:var(--surface-subtle); color:var(--text-primary); border-bottom:1px solid var(--border-color); padding:10px 16px; font-weight:700; display:flex; justify-content:space-between;">
                 <span>Company Features Configuration (F11)</span>
                 <span style="cursor:pointer;" onclick="closeFeaturesModal()">✕</span>
             </div>
-            <div style="padding:14px; max-height:80vh; overflow-y:auto; display:flex; flex-direction:column; gap:12px;">
-                <div style="border:1px solid #b2dfdb; padding:10px; background:#fafdfc;">
-                    <div style="font-weight:bold; font-size:0.85rem; color:#004d40; margin-bottom:6px;">Accounting Features:</div>
+            <div style="padding:16px; max-height:80vh; overflow-y:auto; display:flex; flex-direction:column; gap:12px;">
+                <div style="border:1px solid var(--border-color); padding:12px; background:var(--surface-card); border-radius:var(--radius-sm);">
+                    <div style="font-weight:700; font-size:0.85rem; color:var(--accent-primary); margin-bottom:6px;">Accounting Features:</div>
                     <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:0.82rem;">
                         <label><input type="checkbox" id="feat-maintain-acc" checked disabled> Maintain Accounts: <strong>YES</strong></label>
                         <label><input type="checkbox" id="feat-bill-wise" checked> Enable Bill-wise Entry: <strong>YES</strong></label>
@@ -822,8 +1189,8 @@
                     </div>
                 </div>
 
-                <div style="border:1px solid #b2dfdb; padding:10px; background:#fafdfc;">
-                    <div style="font-weight:bold; font-size:0.85rem; color:#004d40; margin-bottom:6px;">Inventory &amp; Manufacturing Features:</div>
+                <div style="border:1px solid var(--border-color); padding:12px; background:var(--surface-card); border-radius:var(--radius-sm);">
+                    <div style="font-weight:700; font-size:0.85rem; color:var(--accent-primary); margin-bottom:6px;">Inventory &amp; Manufacturing Features:</div>
                     <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:0.82rem;">
                         <label><input type="checkbox" id="feat-maintain-inv" checked> Maintain Inventory: <strong>YES</strong></label>
                         <label><input type="checkbox" id="feat-multi-godowns" checked> Multi-Godown Storage: <strong>YES</strong></label>
@@ -834,8 +1201,8 @@
                     </div>
                 </div>
 
-                <div style="border:1px solid #b2dfdb; padding:10px; background:#fafdfc;">
-                    <div style="font-weight:bold; font-size:0.85rem; color:#004d40; margin-bottom:6px;">Statutory &amp; Taxation Features:</div>
+                <div style="border:1px solid var(--border-color); padding:12px; background:var(--surface-card); border-radius:var(--radius-sm);">
+                    <div style="font-weight:700; font-size:0.85rem; color:var(--accent-primary); margin-bottom:6px;">Statutory &amp; Taxation Features:</div>
                     <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:0.82rem;">
                         <label><input type="checkbox" id="feat-gst" checked> Goods &amp; Services Tax (GST): <strong>YES</strong></label>
                         <label><input type="checkbox" id="feat-tds" checked> Tax Deducted at Source (TDS): <strong>YES</strong></label>
@@ -846,25 +1213,25 @@
                     </div>
                 </div>
 
-                <button class="btn-tally-primary" onclick="saveFeaturesConfig()" style="width:100%; background:#2e7d32;">Save Features (Accept)</button>
+                <button class="btn-tally-primary" onclick="saveFeaturesConfig()" style="width:100%; background:var(--accent-primary);">Save Features (Accept)</button>
             </div>
         </div>
     </div>
 
-    <!-- 13. Help & Legal Statutory Guidance Modal (F1: Help) -->
+    <!-- 14. HELP MODAL (F1: Help) -->
     <div class="modal-overlay" id="help-modal" onclick="if(event.target===this) closeHelpModal()">
-        <div class="modal-dialog" style="width: 620px;">
-            <div style="background:#004d40; color:#fff; padding:8px 12px; font-weight:bold; display:flex; justify-content:space-between;">
+        <div class="modal-dialog" style="width: 640px;">
+            <div style="background:var(--surface-subtle); color:var(--text-primary); border-bottom:1px solid var(--border-color); padding:10px 16px; font-weight:700; display:flex; justify-content:space-between;">
                 <span>TallyForge Help &amp; Statutory Guidance (F1)</span>
                 <span style="cursor:pointer;" onclick="closeHelpModal()">✕</span>
             </div>
-            <div style="padding:14px; max-height:80vh; overflow-y:auto; display:flex; flex-direction:column; gap:12px;">
-                <div style="border:1px solid #b2dfdb; padding:10px; background:#fafdfc;">
-                    <div style="font-weight:bold; font-size:0.85rem; color:#004d40; margin-bottom:4px;">Keyboard Navigation Shortcuts:</div>
+            <div style="padding:16px; max-height:80vh; overflow-y:auto; display:flex; flex-direction:column; gap:12px;">
+                <div style="border:1px solid var(--border-color); padding:12px; background:var(--surface-card); border-radius:var(--radius-sm);">
+                    <div style="font-weight:700; font-size:0.85rem; color:var(--accent-primary); margin-bottom:6px;">Keyboard Shortcuts &amp; Navigation:</div>
                     <table class="tally-data-table" style="font-size:0.78rem;">
                         <thead><tr><th>Key</th><th>Function</th></tr></thead>
                         <tbody>
-                            <tr><td><strong>Alt+G</strong></td><td>Go To Live Smart Search</td></tr>
+                            <tr><td><strong>⌘K / Ctrl+K / Alt+G</strong></td><td>Global Command Palette &amp; Search</td></tr>
                             <tr><td><strong>Alt+K / F3</strong></td><td>Company Management &amp; Switching</td></tr>
                             <tr><td><strong>Alt+Y</strong></td><td>Data Management, Backup, Restore &amp; FY Closing</td></tr>
                             <tr><td><strong>Alt+Z</strong></td><td>Exchange, Forex Rates &amp; Currency Master</td></tr>
@@ -876,40 +1243,40 @@
                             <tr><td><strong>F11 / F12</strong></td><td>Company Features / TDL Studio Live Code</td></tr>
                             <tr><td><strong>Ctrl+N / Ctrl+M</strong></td><td>Open / Close Bottom Calculator Drawer</td></tr>
                             <tr><td><strong>Ctrl+A</strong></td><td>Accept &amp; Save Voucher / Master</td></tr>
-                            <tr><td><strong>Esc</strong></td><td>Back / Return to Gateway</td></tr>
+                            <tr><td><strong>Esc</strong></td><td>Back / Return to Dashboard</td></tr>
                         </tbody>
                     </table>
                 </div>
 
-                <div style="border:1px solid #b2dfdb; padding:10px; background:#fafdfc;">
-                    <div style="font-weight:bold; font-size:0.85rem; color:#004d40; margin-bottom:4px;">Legal Statutory Basis &amp; Compliance Citations:</div>
-                    <div id="statutory-legal-basis-content" style="font-size:0.78rem; line-height:1.45; color:#333;">
+                <div style="border:1px solid var(--border-color); padding:12px; background:var(--surface-card); border-radius:var(--radius-sm);">
+                    <div style="font-weight:700; font-size:0.85rem; color:var(--accent-primary); margin-bottom:4px;">Legal Statutory Basis &amp; Compliance Citations:</div>
+                    <div id="statutory-legal-basis-content" style="font-size:0.78rem; line-height:1.45; color:var(--text-secondary);">
                         Loading statutory configuration from engine...
                     </div>
                 </div>
 
-                <div style="border:1px solid #b2dfdb; padding:10px; background:#fafdfc;">
-                    <div style="font-weight:bold; font-size:0.85rem; color:#004d40; margin-bottom:4px;">Offline Security &amp; Data Integrity:</div>
-                    <p style="font-size:0.78rem; color:#555; margin:0;">
-                        • <strong>100% Offline Standalone:</strong> Zero remote analytics, tracking, or network calls.<br>
+                <div style="border:1px solid var(--border-color); padding:12px; background:var(--surface-card); border-radius:var(--radius-sm);">
+                    <div style="font-weight:700; font-size:0.85rem; color:var(--accent-primary); margin-bottom:4px;">Offline Security &amp; Data Integrity:</div>
+                    <p style="font-size:0.78rem; color:var(--text-secondary); margin:0;">
+                        • <strong>100% Offline Standalone:</strong> Zero remote telemetry, tracking, or network calls.<br>
                         • <strong>SQLite WAL Mode:</strong> High-concurrency Write-Ahead Logging with ACID transaction safety.<br>
-                        • <strong>Password Security:</strong> NIST SP 800-63B PBKDF2-HMAC-SHA256 (100,000 iterations).<br>
-                        • <strong>RBAC Roles:</strong> Admin (Full), Data Entry (Voucher posting), Auditor (Read-only + Edit Log).
+                        • <strong>Password Security:</strong> NIST SP 800-63B PBKDF2-HMAC-SHA256.<br>
+                        • <strong>RBAC Roles:</strong> Admin (Full), Data Entry, Auditor (Read-only + Edit Log).
                     </p>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- 14. User Authentication & Login Modal -->
+    <!-- 15. USER AUTHENTICATION MODAL (U: Login) -->
     <div class="modal-overlay" id="auth-modal" onclick="if(event.target===this) closeAuthModal()">
         <div class="modal-dialog" style="width: 440px;">
-            <div style="background:#004d40; color:#fff; padding:8px 12px; font-weight:bold; display:flex; justify-content:space-between;">
+            <div style="background:var(--surface-subtle); color:var(--text-primary); border-bottom:1px solid var(--border-color); padding:10px 16px; font-weight:700; display:flex; justify-content:space-between;">
                 <span>User Authentication &amp; RBAC Login</span>
                 <span style="cursor:pointer;" onclick="closeAuthModal()">✕</span>
             </div>
-            <div style="padding:14px; display:flex; flex-direction:column; gap:10px;">
-                <div style="font-size:0.8rem; color:#555;" id="auth-current-user-status">Active Session: Local Administrator</div>
+            <div style="padding:16px; display:flex; flex-direction:column; gap:12px;">
+                <div style="font-size:0.8rem; color:var(--text-secondary);" id="auth-current-user-status">Active Session: Local Administrator</div>
                 <div class="voucher-field-group">
                     <label>Username:</label>
                     <input type="text" id="login-username" class="tally-input" placeholder="e.g. admin" value="admin">
@@ -919,22 +1286,22 @@
                     <input type="password" id="login-password" class="tally-input" placeholder="Password" value="admin123">
                 </div>
                 <div style="display:flex; gap:8px; margin-top:8px;">
-                    <button class="btn-tally-primary" id="login-submit-btn" onclick="submitUserLogin()" style="flex:1; background:#2e7d32;">Log In</button>
-                    <button class="btn-tally-primary" id="logout-btn" onclick="submitUserLogout()" style="flex:1; background:#c62828;">Log Out</button>
-                    <button class="btn-tally-primary" onclick="closeAuthModal()" style="background:#78909c;">Close</button>
+                    <button class="btn-tally-primary" id="login-submit-btn" onclick="submitUserLogin()" style="flex:1; background:var(--accent-primary);">Log In</button>
+                    <button class="btn-tally-primary" id="logout-btn" onclick="submitUserLogout()" style="flex:1; background:var(--accent-danger); color:#fff;">Log Out</button>
+                    <button class="btn-tally-primary" onclick="closeAuthModal()" style="background:var(--surface-hover); color:var(--text-primary); border:1px solid var(--border-color);">Close</button>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- 15. Master Creation / Alteration Screen Modal -->
+    <!-- 16. MASTER CREATION MODAL -->
     <div class="modal-overlay" id="master-creation-modal" onclick="if(event.target===this) closeMasterCreationModal()">
-        <div class="modal-dialog" style="width: 540px;">
-            <div style="background:#004d40; color:#fff; padding:8px 12px; font-weight:bold; display:flex; justify-content:space-between;">
+        <div class="modal-dialog" style="width: 560px;">
+            <div style="background:var(--surface-subtle); color:var(--text-primary); border-bottom:1px solid var(--border-color); padding:10px 16px; font-weight:700; display:flex; justify-content:space-between;">
                 <span id="master-modal-title">Master Creation</span>
                 <span style="cursor:pointer;" onclick="closeMasterCreationModal()">✕</span>
             </div>
-            <div style="padding:14px; display:flex; flex-direction:column; gap:10px;">
+            <div style="padding:16px; display:flex; flex-direction:column; gap:12px;">
                 <div class="voucher-field-group">
                     <label>Master Type:</label>
                     <select id="modal-master-type" class="tally-input" onchange="onModalMasterTypeChange()">
@@ -953,7 +1320,7 @@
                 </div>
 
                 <!-- Ledger Fields -->
-                <div id="modal-master-ledger-fields" style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                <div id="modal-master-ledger-fields" style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
                     <div class="voucher-field-group">
                         <label>Under Group:</label>
                         <select id="modal-master-group" class="tally-input">
@@ -975,7 +1342,7 @@
                     <div class="voucher-field-group">
                         <label>Opening Balance (₹):</label>
                         <div style="display:flex; gap:4px;">
-                            <input type="number" id="modal-master-opbal" class="tally-input" placeholder="0.00" value="0.00" step="0.01" style="flex:1;">
+                            <input type="number" id="modal-master-opbal" class="tally-input amount-cell" placeholder="0.00" value="0.00" step="0.01" style="flex:1;">
                             <select id="modal-master-optype" class="tally-input" style="width:65px;">
                                 <option value="Dr">Dr</option>
                                 <option value="Cr">Cr</option>
@@ -985,7 +1352,7 @@
                 </div>
 
                 <!-- Stock Item Fields -->
-                <div id="modal-master-stock-fields" style="display:none; grid-template-columns:1fr 1fr 1fr; gap:8px;">
+                <div id="modal-master-stock-fields" style="display:none; grid-template-columns:1fr 1fr 1fr; gap:10px;">
                     <div class="voucher-field-group">
                         <label>Unit (UOM):</label>
                         <input type="text" id="modal-master-uom" class="tally-input" value="Nos">
@@ -1004,7 +1371,7 @@
                     </div>
                     <div class="voucher-field-group">
                         <label>Opening Rate (₹):</label>
-                        <input type="number" id="modal-master-oprate" class="tally-input" value="0">
+                        <input type="number" id="modal-master-oprate" class="tally-input amount-cell" value="0">
                     </div>
                 </div>
 
@@ -1018,21 +1385,21 @@
 
                 <!-- Action Buttons -->
                 <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px;">
-                    <button class="btn-tally-primary" id="modal-master-submit-btn" onclick="submitMasterCreation()" style="background:#2e7d32;">Save Master (Ctrl+A)</button>
-                    <button class="btn-tally-primary" id="modal-master-cancel-btn" onclick="closeMasterCreationModal()" style="background:#c62828;">Cancel (Esc)</button>
+                    <button class="btn-tally-primary" id="modal-master-submit-btn" onclick="submitMasterCreation()" style="background:var(--accent-primary);">Save Master (Ctrl+A)</button>
+                    <button class="btn-tally-primary" id="modal-master-cancel-btn" onclick="closeMasterCreationModal()" style="background:var(--accent-danger); color:#fff;">Cancel (Esc)</button>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- POS FAST BILLING MODAL -->
+    <!-- 17. POS FAST BILLING MODAL -->
     <div class="modal-overlay" id="pos-billing-modal" onclick="if(event.target===this) closePOSBillingModal()">
-        <div class="modal-dialog" style="width: 620px; max-height: 90vh; display:flex; flex-direction:column;">
-            <div class="modal-header">
+        <div class="modal-dialog" style="width: 640px; max-height: 90vh; display:flex; flex-direction:column;">
+            <div style="background:var(--surface-subtle); color:var(--text-primary); border-bottom:1px solid var(--border-color); padding:10px 16px; font-weight:700; display:flex; justify-content:space-between;">
                 <span>Point of Sale (POS) Fast Retail Billing</span>
-                <span class="modal-close" onclick="closePOSBillingModal()">&times;</span>
+                <span style="cursor:pointer;" onclick="closePOSBillingModal()">✕</span>
             </div>
-            <div class="modal-body" style="padding:15px; overflow-y:auto; flex:1;">
+            <div style="padding:16px; overflow-y:auto; flex:1;">
                 <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-bottom:10px;">
                     <div class="voucher-field-group">
                         <label>Date:</label>
@@ -1048,12 +1415,12 @@
                     </div>
                 </div>
 
-                <div style="background:#e0f2f1; padding:8px; border-radius:4px; margin-bottom:10px;">
-                    <div style="font-weight:bold; font-size:0.8rem; margin-bottom:5px; color:#004d40;">ITEM ENTRY</div>
+                <div style="background:var(--surface-subtle); padding:10px; border-radius:var(--radius-sm); margin-bottom:10px; border:1px solid var(--border-color);">
+                    <div style="font-weight:700; font-size:0.8rem; margin-bottom:6px; color:var(--accent-primary);">ITEM ENTRY</div>
                     <div style="display:grid; grid-template-columns:2fr 1fr 1fr 1fr; gap:6px;">
                         <select id="pos-item-select" class="tally-input"></select>
                         <input type="number" id="pos-item-qty" class="tally-input" placeholder="Qty" value="1" min="1" oninput="calculatePOSTotal()">
-                        <input type="number" id="pos-item-rate" class="tally-input" placeholder="Rate (₹)" value="0" step="0.01" oninput="calculatePOSTotal()">
+                        <input type="number" id="pos-item-rate" class="tally-input amount-cell" placeholder="Rate (₹)" value="0" step="0.01" oninput="calculatePOSTotal()">
                         <button class="btn-tally-primary" onclick="addPOSItemRow()" style="padding:4px 8px; font-size:0.75rem;">+ Add Item</button>
                     </div>
                 </div>
@@ -1069,57 +1436,57 @@
                         </tr>
                     </thead>
                     <tbody id="pos-items-tbody">
-                        <tr><td colspan="5" style="text-align:center; color:#777;">No items added. Select item above and click + Add Item.</td></tr>
+                        <tr><td colspan="5" style="text-align:center; color:var(--text-muted); padding:10px;">No items added. Select item above and click + Add Item.</td></tr>
                     </tbody>
                 </table>
 
-                <div style="background:#f5f5f5; border:1px solid #ccc; padding:10px; border-radius:4px;">
-                    <div style="display:flex; justify-content:space-between; font-size:1.1rem; font-weight:bold; margin-bottom:8px; color:#004d40;">
+                <div style="background:var(--surface-subtle); border:1px solid var(--border-color); padding:12px; border-radius:var(--radius-sm);">
+                    <div style="display:flex; justify-content:space-between; font-size:1.15rem; font-weight:700; margin-bottom:8px; color:var(--accent-primary); font-family:var(--font-mono);">
                         <span>Invoice Total:</span>
                         <span id="pos-grand-total">₹0.00</span>
                     </div>
-                    <div style="font-weight:bold; font-size:0.8rem; margin-bottom:5px; color:#555;">MULTI-TENDER PAYMENT SPLIT</div>
+                    <div style="font-weight:700; font-size:0.8rem; margin-bottom:6px; color:var(--text-secondary);">MULTI-TENDER PAYMENT SPLIT</div>
                     <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:8px;">
                         <div class="voucher-field-group">
                             <label>Cash Tendered:</label>
-                            <input type="number" id="pos-tender-cash" class="tally-input" placeholder="0.00" value="0.00" step="0.01" oninput="calculatePOSChange()">
+                            <input type="number" id="pos-tender-cash" class="tally-input amount-cell" placeholder="0.00" value="0.00" step="0.01" oninput="calculatePOSChange()">
                         </div>
                         <div class="voucher-field-group">
                             <label>Card Payment:</label>
-                            <input type="number" id="pos-tender-card" class="tally-input" placeholder="0.00" value="0.00" step="0.01" oninput="calculatePOSChange()">
+                            <input type="number" id="pos-tender-card" class="tally-input amount-cell" placeholder="0.00" value="0.00" step="0.01" oninput="calculatePOSChange()">
                         </div>
                         <div class="voucher-field-group">
                             <label>UPI / QR:</label>
-                            <input type="number" id="pos-tender-upi" class="tally-input" placeholder="0.00" value="0.00" step="0.01" oninput="calculatePOSChange()">
+                            <input type="number" id="pos-tender-upi" class="tally-input amount-cell" placeholder="0.00" value="0.00" step="0.01" oninput="calculatePOSChange()">
                         </div>
                         <div class="voucher-field-group">
                             <label>Cheque / Other:</label>
-                            <input type="number" id="pos-tender-cheque" class="tally-input" placeholder="0.00" value="0.00" step="0.01" oninput="calculatePOSChange()">
+                            <input type="number" id="pos-tender-cheque" class="tally-input amount-cell" placeholder="0.00" value="0.00" step="0.01" oninput="calculatePOSChange()">
                         </div>
                     </div>
-                    <div style="display:flex; justify-content:space-between; margin-top:8px; font-weight:bold; font-size:0.95rem;">
+                    <div style="display:flex; justify-content:space-between; margin-top:10px; font-weight:700; font-size:0.95rem; font-family:var(--font-mono);">
                         <span>Change Returned:</span>
-                        <span id="pos-change-returned" style="color:#2e7d32;">₹0.00</span>
+                        <span id="pos-change-returned" style="color:var(--accent-primary);">₹0.00</span>
                     </div>
                 </div>
 
-                <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:12px;">
-                    <button class="btn-tally-primary" id="btn-save-pos" onclick="submitPOSInvoice()" style="background:#2e7d32;">Accept POS Invoice (Ctrl+A)</button>
-                    <button class="btn-tally-primary" onclick="closePOSBillingModal()" style="background:#c62828;">Cancel (Esc)</button>
+                <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:14px;">
+                    <button class="btn-tally-primary" id="btn-save-pos" onclick="submitPOSInvoice()" style="background:var(--accent-primary);">Accept POS Invoice (Ctrl+A)</button>
+                    <button class="btn-tally-primary" onclick="closePOSBillingModal()" style="background:var(--accent-danger); color:#fff;">Cancel (Esc)</button>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- FIXED ASSET MANAGEMENT MODAL -->
+    <!-- 18. FIXED ASSETS MODAL -->
     <div class="modal-overlay" id="fixed-asset-modal" onclick="if(event.target===this) closeFixedAssetModal()">
-        <div class="modal-dialog" style="width: 580px; max-height: 90vh; display:flex; flex-direction:column;">
-            <div class="modal-header">
-                <span>Fixed Asset & Depreciation Manager</span>
-                <span class="modal-close" onclick="closeFixedAssetModal()">&times;</span>
+        <div class="modal-dialog" style="width: 600px; max-height: 90vh; display:flex; flex-direction:column;">
+            <div style="background:var(--surface-subtle); color:var(--text-primary); border-bottom:1px solid var(--border-color); padding:10px 16px; font-weight:700; display:flex; justify-content:space-between;">
+                <span>Fixed Asset &amp; Depreciation Manager</span>
+                <span style="cursor:pointer;" onclick="closeFixedAssetModal()">✕</span>
             </div>
-            <div class="modal-body" style="padding:15px; overflow-y:auto; flex:1;">
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+            <div style="padding:16px; overflow-y:auto; flex:1;">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
                     <div class="voucher-field-group">
                         <label>Asset Code:</label>
                         <input type="text" id="fa-code" class="tally-input" placeholder="FA-SRV-001" value="FA-SRV-001">
@@ -1144,11 +1511,11 @@
                     </div>
                     <div class="voucher-field-group">
                         <label>Original Cost (₹):</label>
-                        <input type="number" id="fa-cost" class="tally-input" placeholder="100000.00" value="120000.00" step="0.01">
+                        <input type="number" id="fa-cost" class="tally-input amount-cell" placeholder="100000.00" value="120000.00" step="0.01">
                     </div>
                     <div class="voucher-field-group">
                         <label>Scrap / Residual Value (₹):</label>
-                        <input type="number" id="fa-scrap" class="tally-input" placeholder="5000.00" value="6000.00" step="0.01">
+                        <input type="number" id="fa-scrap" class="tally-input amount-cell" placeholder="5000.00" value="6000.00" step="0.01">
                     </div>
                     <div class="voucher-field-group">
                         <label>Useful Life (Months):</label>
@@ -1163,23 +1530,23 @@
                     </div>
                 </div>
 
-                <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:12px;">
-                    <button class="btn-tally-primary" id="btn-save-asset" onclick="submitFixedAsset()" style="background:#2e7d32;">Save Asset (Ctrl+A)</button>
-                    <button class="btn-tally-primary" onclick="closeFixedAssetModal()" style="background:#c62828;">Cancel (Esc)</button>
+                <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:14px;">
+                    <button class="btn-tally-primary" id="btn-save-asset" onclick="submitFixedAsset()" style="background:var(--accent-primary);">Save Asset (Ctrl+A)</button>
+                    <button class="btn-tally-primary" onclick="closeFixedAssetModal()" style="background:var(--accent-danger); color:#fff;">Cancel (Esc)</button>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- ORDER CREATION MODAL -->
+    <!-- 19. ORDER CREATION MODAL -->
     <div class="modal-overlay" id="order-creation-modal" onclick="if(event.target===this) closeOrderCreationModal()">
-        <div class="modal-dialog" style="width: 580px; max-height: 90vh; display:flex; flex-direction:column;">
-            <div class="modal-header">
+        <div class="modal-dialog" style="width: 600px; max-height: 90vh; display:flex; flex-direction:column;">
+            <div style="background:var(--surface-subtle); color:var(--text-primary); border-bottom:1px solid var(--border-color); padding:10px 16px; font-weight:700; display:flex; justify-content:space-between;">
                 <span>Order Processing (Sales / Purchase Order)</span>
-                <span class="modal-close" onclick="closeOrderCreationModal()">&times;</span>
+                <span style="cursor:pointer;" onclick="closeOrderCreationModal()">✕</span>
             </div>
-            <div class="modal-body" style="padding:15px; overflow-y:auto; flex:1;">
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+            <div style="padding:16px; overflow-y:auto; flex:1;">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
                     <div class="voucher-field-group">
                         <label>Order Type:</label>
                         <select id="ord-type" class="tally-input">
@@ -1205,7 +1572,7 @@
                     </div>
                     <div class="voucher-field-group">
                         <label>Rate (₹):</label>
-                        <input type="number" id="ord-rate" class="tally-input" value="1000.00" step="0.01">
+                        <input type="number" id="ord-rate" class="tally-input amount-cell" value="1000.00" step="0.01">
                     </div>
                     <div class="voucher-field-group">
                         <label>Due Date:</label>
@@ -1217,65 +1584,65 @@
                     </div>
                 </div>
 
-                <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:12px;">
-                    <button class="btn-tally-primary" id="btn-save-order" onclick="submitOrderCreation()" style="background:#2e7d32;">Save Order (Ctrl+A)</button>
-                    <button class="btn-tally-primary" onclick="closeOrderCreationModal()" style="background:#c62828;">Cancel (Esc)</button>
+                <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:14px;">
+                    <button class="btn-tally-primary" id="btn-save-order" onclick="submitOrderCreation()" style="background:var(--accent-primary);">Save Order (Ctrl+A)</button>
+                    <button class="btn-tally-primary" onclick="closeOrderCreationModal()" style="background:var(--accent-danger); color:#fff;">Cancel (Esc)</button>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- GSTR-2B RECONCILIATION MODAL -->
+    <!-- 20. GSTR-2B MODAL -->
     <div class="modal-overlay" id="gstr2b-modal" onclick="if(event.target===this) closeGSTR2BModal()">
-        <div class="modal-dialog" style="width: 600px; max-height: 90vh; display:flex; flex-direction:column;">
-            <div class="modal-header">
+        <div class="modal-dialog" style="width: 620px; max-height: 90vh; display:flex; flex-direction:column;">
+            <div style="background:var(--surface-subtle); color:var(--text-primary); border-bottom:1px solid var(--border-color); padding:10px 16px; font-weight:700; display:flex; justify-content:space-between;">
                 <span>GSTR-2B Inward Purchase ITC 4-Way Reconciliation</span>
-                <span class="modal-close" onclick="closeGSTR2BModal()">&times;</span>
+                <span style="cursor:pointer;" onclick="closeGSTR2BModal()">✕</span>
             </div>
-            <div class="modal-body" style="padding:15px; overflow-y:auto; flex:1;">
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px;">
+            <div style="padding:16px; overflow-y:auto; flex:1;">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px;">
                     <div class="voucher-field-group">
                         <label>Return Period (MMYYYY):</label>
                         <input type="text" id="g2b-period" class="tally-input" value="042026">
                     </div>
                     <div class="voucher-field-group">
                         <label>Matching Tolerance (₹):</label>
-                        <input type="number" id="g2b-tolerance" class="tally-input" value="1.00" step="0.01">
+                        <input type="number" id="g2b-tolerance" class="tally-input amount-cell" value="1.00" step="0.01">
                     </div>
                 </div>
-                <div style="font-size:0.8rem; color:#555; margin-bottom:8px;">
+                <div style="font-size:0.80rem; color:var(--text-secondary); margin-bottom:10px;">
                     Click "Run Auto-Reconciliation" to cross-reference Purchase Invoices in Books against GSTR-2B portal data for 4-way classification:
                     (1) Matched, (2) Tax Mismatch, (3) Missing in Books, (4) Missing in GSTR-2B.
                 </div>
-                <div id="g2b-result-summary" style="display:none; background:#e8f5e9; border:1px solid #c8e6c9; padding:10px; border-radius:4px; margin-bottom:10px;">
-                    <div style="font-weight:bold; color:#1b5e20; margin-bottom:6px;">Reconciliation Results:</div>
-                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; font-size:0.85rem;">
+                <div id="g2b-result-summary" style="display:none; background:var(--accent-primary-subtle); border:1px solid var(--accent-primary); padding:12px; border-radius:var(--radius-sm); margin-bottom:12px;">
+                    <div style="font-weight:700; color:var(--accent-primary); margin-bottom:8px;">Reconciliation Results:</div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:0.85rem;">
                         <div>Total 2B Invoices: <strong id="g2b-res-total">0</strong></div>
-                        <div>Matched: <strong id="g2b-res-matched" style="color:#2e7d32;">0</strong></div>
-                        <div>Tax Mismatch: <strong id="g2b-res-mismatch" style="color:#e65100;">0</strong></div>
-                        <div>Missing in Books: <strong id="g2b-res-missing-books" style="color:#c62828;">0</strong></div>
-                        <div>Missing in 2B: <strong id="g2b-res-missing-2b" style="color:#c62828;">0</strong></div>
-                        <div>Eligible ITC: <strong id="g2b-res-itc" style="color:#1b5e20;">₹0.00</strong></div>
+                        <div>Matched: <strong id="g2b-res-matched" style="color:var(--accent-primary);">0</strong></div>
+                        <div>Tax Mismatch: <strong id="g2b-res-mismatch" style="color:var(--accent-warning);">0</strong></div>
+                        <div>Missing in Books: <strong id="g2b-res-missing-books" style="color:var(--accent-danger);">0</strong></div>
+                        <div>Missing in 2B: <strong id="g2b-res-missing-2b" style="color:var(--accent-danger);">0</strong></div>
+                        <div>Eligible ITC: <strong id="g2b-res-itc" style="color:var(--accent-primary);">₹0.00</strong></div>
                     </div>
                 </div>
 
-                <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:12px;">
-                    <button class="btn-tally-primary" id="btn-run-gstr2b" onclick="runGSTR2BReconcile()" style="background:#2e7d32;">Run Auto-Reconciliation</button>
-                    <button class="btn-tally-primary" onclick="closeGSTR2BModal()" style="background:#c62828;">Close (Esc)</button>
+                <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:14px;">
+                    <button class="btn-tally-primary" id="btn-run-gstr2b" onclick="runGSTR2BReconcile()" style="background:var(--accent-primary);">Run Auto-Reconciliation</button>
+                    <button class="btn-tally-primary" onclick="closeGSTR2BModal()" style="background:var(--accent-danger); color:#fff;">Close (Esc)</button>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- LANDED COST ALLOCATION MODAL -->
+    <!-- 21. LANDED COST MODAL -->
     <div class="modal-overlay" id="landed-cost-modal" onclick="if(event.target===this) closeLandedCostModal()">
-        <div class="modal-dialog" style="width: 540px; max-height: 90vh; display:flex; flex-direction:column;">
-            <div class="modal-header">
-                <span>Landed Cost & Additional Purchase Cost Allocation</span>
-                <span class="modal-close" onclick="closeLandedCostModal()">&times;</span>
+        <div class="modal-dialog" style="width: 560px; max-height: 90vh; display:flex; flex-direction:column;">
+            <div style="background:var(--surface-subtle); color:var(--text-primary); border-bottom:1px solid var(--border-color); padding:10px 16px; font-weight:700; display:flex; justify-content:space-between;">
+                <span>Landed Cost &amp; Additional Purchase Cost Allocation</span>
+                <span style="cursor:pointer;" onclick="closeLandedCostModal()">✕</span>
             </div>
-            <div class="modal-body" style="padding:15px; overflow-y:auto; flex:1;">
-                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+            <div style="padding:16px; overflow-y:auto; flex:1;">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
                     <div class="voucher-field-group">
                         <label>Purchase Voucher ID:</label>
                         <input type="number" id="lcv-purchase-id" class="tally-input" value="1" min="1">
@@ -1297,7 +1664,7 @@
                     </div>
                     <div class="voucher-field-group" style="grid-column: span 2;">
                         <label>Additional Charge Amount (₹):</label>
-                        <input type="number" id="lcv-amount" class="tally-input" placeholder="2500.00" value="2500.00" step="0.01">
+                        <input type="number" id="lcv-amount" class="tally-input amount-cell" placeholder="2500.00" value="2500.00" step="0.01">
                     </div>
                     <div class="voucher-field-group" style="grid-column: span 2;">
                         <label>Narration:</label>
@@ -1305,14 +1672,15 @@
                     </div>
                 </div>
 
-                <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:12px;">
-                    <button class="btn-tally-primary" id="btn-save-landed" onclick="submitLandedCost()" style="background:#2e7d32;">Allocate Cost (Ctrl+A)</button>
-                    <button class="btn-tally-primary" onclick="closeLandedCostModal()" style="background:#c62828;">Cancel (Esc)</button>
+                <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:14px;">
+                    <button class="btn-tally-primary" id="btn-save-landed" onclick="submitLandedCost()" style="background:var(--accent-primary);">Allocate Cost (Ctrl+A)</button>
+                    <button class="btn-tally-primary" onclick="closeLandedCostModal()" style="background:var(--accent-danger); color:#fff;">Cancel (Esc)</button>
                 </div>
             </div>
         </div>
     </div>
 
+    <!-- Script Entrypoint -->
     <script src="/static/tally.js"></script>
 </body>
 </html>
