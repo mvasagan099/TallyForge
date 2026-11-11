@@ -168,6 +168,14 @@ class TallyXmlImportTests(unittest.TestCase):
         self.assertEqual(counts(), snapshot)
         self.assertEqual(sorted(p.name for p in self.data.iterdir()), ['10000'])
 
+    def test_financial_year_covers_every_voucher_and_is_extended_by_later_imports(self):
+        first = import_company(self.data, [self.master, self.daybook])
+        row = lambda: self.db(first).execute('SELECT financial_year_from, financial_year_to FROM company').fetchone()
+        self.assertEqual(tuple(row()), ('2026-04-01', '2027-03-31'))
+        later = write(self.src, 'Later.xml', envelope([voucher(40, 'Journal', '20280510', [entry('Rent', '-1.00'), entry('Cash', '1.00')], 'J/40')]))
+        import_company(self.data, [later])
+        self.assertEqual(tuple(row()), ('2026-04-01', '2029-03-31'))      # 10 May 2028 is in the year ending 31 March 2029
+
     def test_changed_voucher_is_replaced_not_duplicated(self):
         first = import_company(self.data, [self.master, self.daybook])
         changed = list(day_book())

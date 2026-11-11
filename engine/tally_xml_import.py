@@ -758,11 +758,18 @@ def import_company_bundle(data_root, bundle, company_name=None, extra_verify=Non
         if created:
             dates = sorted(v['date'] for v in bundle['vouchers'].values())
             start_year = int(dates[0][:4]) - (1 if dates and int(dates[0][5:7]) < 4 else 0) if dates else 2026
+            end_year = (int(dates[-1][:4]) + (0 if int(dates[-1][5:7]) < 4 else 1)) if dates else start_year + 1
             cid = db.create_company(name=company_name or tally_company, state='', state_code='', address='',
-                                    financial_year_from=f'{start_year}-04-01', financial_year_to=f'{start_year + 1}-03-31')
+                                    financial_year_from=f'{start_year}-04-01', financial_year_to=f'{end_year}-03-31')
             db.conn.execute("UPDATE company SET gstin='', pincode='' WHERE id=?", (cid,))
             db.conn.commit()
         db.select_company(cid)
+        if not created and bundle['vouchers']:
+            # A company imported earlier covers only its first year; extend the period to the last voucher's year.
+            last = max(v['date'] for v in bundle['vouchers'].values())
+            end = f"{int(last[:4]) + (0 if int(last[5:7]) < 4 else 1)}-03-31"
+            db.conn.execute('UPDATE company SET financial_year_to=? WHERE id=? AND financial_year_to < ?', (end, cid, end))
+            db.conn.commit()
         summary = import_bundle(db, bundle)
         result = verify(db, bundle)
         if extra_verify:
