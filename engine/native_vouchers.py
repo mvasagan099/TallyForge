@@ -14,7 +14,10 @@ Known limits:
   TallyPrime shows one aggregate line); the per-ledger net is what matches, so use ``ledger_nets``.
 * Such a difference still looks balanced natively, so balance cannot detect it.
 * "Active" is an inference (see ``select_active``) that was wrong for 2 of 17,988 non-live records.
-* Cancelled / optional flags, voucher numbers and opening balances are NOT decoded.
+* Voucher number (field 2005, else 203) and narration (field 205) are decoded. Number was exact for every voucher
+  where TallyPrime supplies one (20,281 of 20,281); for 2,062 Sales vouchers TallyPrime's export returns it blank while
+  the native file holds one, so those cannot be checked. Narration keeps trailing whitespace that Tally's export trims.
+* Cancelled / optional flags and opening balances are NOT decoded.
 """
 import datetime
 from collections import Counter, defaultdict
@@ -43,6 +46,14 @@ def _date(nodes):
         return (datetime.date(1899, 12, 31) + datetime.timedelta(days=int(values[0]))).isoformat()
     except (ValueError, OverflowError):
         return None
+
+
+def _first_text(nodes, *fields):
+    for field in fields:
+        values = _values(nodes, field, 0x0f00, True)
+        if values:
+            return str(values[0])
+    return ''
 
 
 def read_native_vouchers(root, key):
@@ -93,6 +104,7 @@ def read_native_vouchers(root, key):
             record.update(type=names.get(kind), master_id=int(master_ids[0]) if master_ids else None,
                           alter_id=int(alter_ids[0]) if alter_ids else None, date=_date(nodes),
                           has_company_guid=bool(_values(nodes, 3004, 0x0f00, True)),
+                          number=_first_text(nodes, 2005, 203), narration=_first_text(nodes, 205),
                           layout_complete=bool(layouts[0]['complete']))
             if not layouts[1]['complete']:
                 record['error'] = 'postings layout incomplete: ' + str(layouts[1]['diagnostic'])[:80]
@@ -166,6 +178,15 @@ def compare_with_bundle(active, bundle):
             out['truth voucher missing from native'] += 1
             continue
         out['matched by GUID'] += 1
+        if v.get('number'):
+            equal = r.get('number') == v['number']
+            out['number equal' if equal else 'number DIFFERS'] += 1
+            if not equal and len(mismatches['number']) < 3:
+                mismatches['number'].append(guid)
+        elif r.get('number'):
+            out['number held natively but blank in truth (unverifiable)'] += 1
+        want, got = (v.get('narration') or '').strip(), (r.get('narration') or '').strip()
+        out['narration equal' if want == got else 'narration DIFFERS'] += 1
         for label, ok in (('type', r.get('type') == v['type']), ('date', r.get('date') == v['date']),
                           ('alter id', str(r.get('alter_id')) == str(v['alter_id']))):
             out[label + ' equal'] += ok

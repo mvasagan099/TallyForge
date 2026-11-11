@@ -46,6 +46,10 @@ def build(folder, vouchers):
         body = text(3, format(serial(v['date']), '08x') + '-00000007-000000b0')
         if v.get('guid', True):
             body += text(3004, COMPANY_GUID)
+        if v.get('number'):
+            body += text(2005, v['number'])
+        if v.get('narration'):
+            body += text(205, v['narration'])
         body += integer(3003, 0x600, v['master']) + integer(3004, 0x600, v['alter'])
         body += integer(103, 0x0d00, serial(v['date'])) + integer(203, 0x300, TYPE[v['type']])
         primary[28:28 + len(body)] = body
@@ -59,10 +63,11 @@ def build(folder, vouchers):
 
 
 V = [
-    dict(seq=100, master=41, alter=42, type='Sales', date='2026-04-01', entries=[(10, -10000000), (11, 10000000)]),
+    dict(seq=100, master=41, alter=42, type='Sales', date='2026-04-01', number='S/1', narration='Cash sale\r\n',
+         entries=[(10, -10000000), (11, 10000000)]),
     # master 50 was altered: the older version has a lower alter id and different amounts.
     dict(seq=101, master=50, alter=3, type='Payment', date='2026-04-02', entries=[(10, 1000000), (11, -1000000)]),
-    dict(seq=110, master=50, alter=5, type='Payment', date='2026-04-02', entries=[(10, 2550000), (11, -2550000)]),
+    dict(seq=110, master=50, alter=5, type='Payment', date='2026-04-02', number='P/7', entries=[(10, 2550000), (11, -2550000)]),
     dict(seq=102, master=60, alter=9, type='Payment', date='2026-04-03', guid=False, entries=[(10, 777700000), (11, -777700000)]),
     dict(seq=103, master=70, alter=1, type='Purchase Order', date='2026-04-04', entries=[(10, 500000), (11, -500000)]),
     dict(seq=104, master=80, alter=1, type='Journal', date='2026-04-05', entries=[]),
@@ -86,6 +91,8 @@ class NativeVoucherTests(unittest.TestCase):
         sales = by_seq[100]
         self.assertEqual((sales['type'], sales['date'], sales['master_id'], sales['alter_id']), ('Sales', '2026-04-01', 41, 42))
         self.assertEqual(sales['guid'], COMPANY_GUID + '-00000029')
+        self.assertEqual((sales['number'], sales['narration']), ('S/1', 'Cash sale\r\n'))   # raw: trailing whitespace kept
+        self.assertEqual(by_seq[101]['number'], '')           # older version carries none
         self.assertEqual([e[1] for e in sales['entries']], ['-100.00000', '100.00000'])
         self.assertTrue(sales['balanced'])
         self.assertFalse(by_seq[102]['has_company_guid'])
@@ -110,17 +117,21 @@ class NativeVoucherTests(unittest.TestCase):
     def test_comparison_with_a_reference_bundle(self):
         active = select_active(self.native['records'])
 
-        def v(guid_n, vtype, date, alter, entries):
+        def v(guid_n, vtype, date, alter, entries, number='', narration=''):
             return {'guid': COMPANY_GUID + '-' + format(guid_n, '08x'), 'type': vtype, 'date': date, 'alter_id': str(alter),
+                    'number': number, 'narration': narration,
                     'entries': [{'ledger': l, 'amount': Decimal(a)} for l, a in entries]}
         truth = {x['guid']: x for x in (
-            v(41, 'Sales', '2026-04-01', 42, [('Ledger A', '-100.00'), ('Ledger B', '100.00')]),
+            v(41, 'Sales', '2026-04-01', 42, [('Ledger A', '-100.00'), ('Ledger B', '100.00')], 'S/1', 'Cash sale'),
             v(50, 'Payment', '2026-04-02', 5, [('Ledger A', '25.50'), ('Ledger B', '-25.50')]),
             v(80, 'Journal', '2026-04-05', 1, [('Ledger A', '-1.00'), ('Ledger B', '1.00')]),
             v(99, 'Receipt', '2026-04-09', 1, []))}
         counts, mismatches = compare_with_bundle(active, {'vouchers': truth})
         self.assertEqual(counts['matched by GUID'], 3)
         self.assertEqual(counts['per-ledger net equal'], 2)
+        self.assertEqual(counts['number equal'], 1)
+        self.assertEqual(counts['narration equal'], 3)           # Sales matches after trimming; others are blank on both sides
+        self.assertEqual(counts['number held natively but blank in truth (unverifiable)'], 1)   # the Payment
         self.assertEqual(counts['postings not decoded'], 1)       # the Journal
         self.assertEqual(counts['truth voucher missing from native'], 1)
         self.assertEqual(counts['native active but not in truth'], 1)  # the Purchase Order
