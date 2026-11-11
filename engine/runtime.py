@@ -903,8 +903,7 @@ class TDLRuntime:
 
         # 14. Balance Sheet
         elif "balance" in name_lower:
-            fin = self.db.get_financial_summary()
-            ledgers = self.db.get_ledgers()
+            sheet = self.db.get_balance_sheet()
             lines = [
                 {"name": "Header", "fields": [
                     {"name": "Liabilities", "display_value": "Liabilities & Capital", "width": 35, "align": "left"},
@@ -913,28 +912,21 @@ class TDLRuntime:
                     {"name": "AAmount", "display_value": "Amount (₹)", "width": 15, "align": "right"}
                 ]}
             ]
-            liab_items = [l for l in ledgers if l["closing_balance_type"] == "Cr" and l["closing_balance"] > 0]
-            asset_items = [l for l in ledgers if l["closing_balance_type"] == "Dr" and l["closing_balance"] > 0]
-            asset_items.append({"name": "Stock-in-Hand (Closing Stock)", "closing_balance": fin["closing_stock"], "closing_balance_type": "Dr"})
-
-            max_len = max(len(liab_items), len(asset_items), 1)
-            for i in range(max_len):
+            liab_items, asset_items = sheet["liabilities"], sheet["assets"]
+            for i in range(max(len(liab_items), len(asset_items), 1)):
                 l_item = liab_items[i] if i < len(liab_items) else None
                 a_item = asset_items[i] if i < len(asset_items) else None
                 lines.append({"name": "Row", "fields": [
                     {"name": "LName", "display_value": l_item["name"] if l_item else "", "width": 35, "align": "left"},
-                    {"name": "LVal", "display_value": f"{l_item['closing_balance']:,.2f}" if l_item else "", "width": 15, "align": "right"},
+                    {"name": "LVal", "display_value": f"{l_item['amount']:,.2f}" if l_item else "", "width": 15, "align": "right"},
                     {"name": "AName", "display_value": a_item["name"] if a_item else "", "width": 35, "align": "left"},
-                    {"name": "AVal", "display_value": f"{a_item['closing_balance']:,.2f}" if a_item else "", "width": 15, "align": "right"}
+                    {"name": "AVal", "display_value": f"{a_item['amount']:,.2f}" if a_item else "", "width": 15, "align": "right"}
                 ]})
-
-            total_liab = sum(l["closing_balance"] for l in liab_items)
-            total_assets = sum(a["closing_balance"] for a in asset_items)
             lines.append({"name": "Total", "fields": [
                 {"name": "TotalL", "display_value": "Total Liabilities", "width": 35, "align": "left"},
-                {"name": "TotalLVal", "display_value": f"{total_liab:,.2f}", "width": 15, "align": "right"},
+                {"name": "TotalLVal", "display_value": f"{sheet['total_liabilities']:,.2f}", "width": 15, "align": "right"},
                 {"name": "TotalA", "display_value": "Total Assets", "width": 35, "align": "left"},
-                {"name": "TotalAVal", "display_value": f"{total_assets:,.2f}", "width": 15, "align": "right"}
+                {"name": "TotalAVal", "display_value": f"{sheet['total_assets']:,.2f}", "width": 15, "align": "right"}
             ]})
             return {"report": report_name, "title": "Balance Sheet", "parts": [{"name": "BSPart", "lines": lines}], "company": company}
 

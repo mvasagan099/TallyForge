@@ -2909,6 +2909,47 @@ class EnterpriseAccountingDB(ReliabilityMixin):
             "liab_total": float(liab_total)
         }
 
+    PL_ROOTS = ("Sales Accounts", "Purchase Accounts", "Direct Incomes", "Direct Expenses", "Indirect Incomes",
+                "Indirect Expenses", "Payroll Expenses")
+    ASSET_ROOTS = ("Fixed Assets", "Investments", "Current Assets", "Misc. Expenses (ASSET)")
+
+    def get_balance_sheet(self) -> Dict[str, Any]:
+        """Balance Sheet laid out like TallyPrime's: one line per top-level group, closing stock inside Current
+        Assets, and a Profit & Loss A/c line (this period's net profit plus any group-less P&L ledger balance).
+        Liabilities are credit-positive, assets debit-positive. Checked against a real company: every group total
+        and the totals of both sides equal TallyPrime's except for the closing-stock difference noted elsewhere."""
+        groups = {r["name"]: dict(r) for r in self.conn.execute("SELECT name, parent FROM account_group")}
+        credit = {}
+        for l in self.get_ledgers():
+            bal, side = self.get_ledger_closing_balance(l["name"])
+            root = self._root_group(groups, l["group_name"]) if l["group_name"] in groups else None
+            amount = bal if side == "Cr" else -bal
+            if root in self.PL_ROOTS:
+                continue
+            # A ledger Tally lists without a group is its Profit & Loss A/c (the importer files it under this label).
+            key = root if root in groups and root != "Primary (ungrouped ledgers)" else "Profit & Loss A/c"
+            credit[key] = credit.get(key, Decimal("0.00")) + amount
+        fin = self.get_financial_summary()
+        credit["Profit & Loss A/c"] = credit.get("Profit & Loss A/c", Decimal("0.00")) + to_dec(fin["net_profit"])
+        stock = to_dec(fin["closing_stock"])
+        liabilities, assets = [], []
+        for name in sorted(set(credit) | {"Current Assets"}):
+            value = credit.get(name, Decimal("0.00"))
+            if name in self.ASSET_ROOTS:
+                debit = -value + (stock if name == "Current Assets" else Decimal("0.00"))
+                if debit != 0:
+                    assets.append({"name": name, "amount": debit})
+            elif value != 0:
+                liabilities.append({"name": name, "amount": value})
+        order = {"Capital Account": 0, "Loans (Liability)": 1, "Current Liabilities": 2, "Suspense A/c": 3, "Profit & Loss A/c": 4,
+                 "Fixed Assets": 0, "Investments": 1, "Current Assets": 2}
+        for rows in (liabilities, assets):
+            rows.sort(key=lambda r: (order.get(r["name"], 9), r["name"]))
+        return {"liabilities": [{"name": r["name"], "amount": float(r["amount"])} for r in liabilities],
+                "assets": [{"name": r["name"], "amount": float(r["amount"])} for r in assets],
+                "total_liabilities": float(sum((r["amount"] for r in liabilities), Decimal("0.00"))),
+                "total_assets": float(sum((r["amount"] for r in assets), Decimal("0.00")))}
+
     def get_ratio_analysis(self) -> Dict[str, Any]:
         fin = self.get_financial_summary()
         ledgers = self.get_ledgers()

@@ -110,6 +110,23 @@ class ReportParityTests(unittest.TestCase):
         self.assertEqual(item['closing_qty'], -5.0)
         self.assertEqual(item['closing_value'], -150.0)   # 5 short at this year's purchase rate (30); the all-time average (20) gave -100
 
+    def test_balance_sheet_lists_groups_not_every_ledger_and_balances(self):
+        self.db.add_ledger('Owner', 'Capital Account')
+        self.db.add_ledger('Rent', 'Indirect Expenses')
+        self.journal('Cash', 'Owner', 1000)
+        self.journal('Rent', 'Cash', 40)
+        sheet = self.db.get_balance_sheet()
+        self.assertEqual({r['name']: r['amount'] for r in sheet['liabilities']}, {'Capital Account': 1000.0, 'Profit & Loss A/c': -40.0})
+        self.assertEqual({r['name']: r['amount'] for r in sheet['assets']}, {'Current Assets': 960.0})   # income/expense ledgers are not listed
+        self.assertEqual(sheet['total_liabilities'], sheet['total_assets'])
+        # A ledger without a group is the Profit & Loss A/c: it joins that line instead of being a group of its own.
+        self.db.add_group('Primary (ungrouped ledgers)', 'Primary', is_revenue=False)
+        self.db.add_ledger('Profit & Loss A/c', 'Primary (ungrouped ledgers)')
+        self.journal('Cash', 'Profit & Loss A/c', 10)
+        sheet = self.db.get_balance_sheet()
+        self.assertEqual({r['name']: r['amount'] for r in sheet['liabilities']}['Profit & Loss A/c'], -30.0)
+        self.assertEqual(sheet['total_liabilities'], sheet['total_assets'])
+
     def test_outstanding_bills_are_classified_by_balance_side_like_tallyprime(self):
         self.db.add_ledger('Buyer', 'Sundry Debtors')
         self.db.add_ledger('Supplier', 'Sundry Creditors')
