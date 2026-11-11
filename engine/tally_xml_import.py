@@ -300,7 +300,7 @@ def voucher_fingerprint(v):
     """Stable content hash used for idempotent re-imports."""
     payload = {k: v.get(k) for k in ('type', 'date', 'number', 'reference', 'narration', 'cancelled', 'optional', 'non_posting')}
     payload['entries'] = [[e['ledger'], str(e['amount']), [[b['name'], b['type'], str(b['amount'])] for b in e['bills']]] for e in v['entries']]
-    payload['inventory'] = [[i['item'], str(i['qty']), i['unit'], str(i['rate']), str(i['amount']), i['godown'], i['batch'], i['direction']] for i in v['inventory']]
+    payload['inventory'] = [[i['item'], str(i['qty']), i['unit'], str(i['rate']), str(i['amount']), i['godown'] or 'Main Location', i['batch'], i['direction']] for i in v['inventory']]
     return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
@@ -523,7 +523,9 @@ def import_bundle(db, bundle):
             if led['opening'] is None:
                 summary['ledgers_opening_unknown'] += 1
 
-        missing = sorted(posted - {l['name'] for l in bundle['ledgers'].values()})
+        # A file holding only vouchers may reference ledgers imported earlier into this company.
+        known = {l['name'] for l in bundle['ledgers'].values()} | {r[0] for r in conn.execute('SELECT name FROM ledger')}
+        missing = sorted(posted - known)
         if missing:
             raise TallyImportError(f'Vouchers reference ledgers absent from the master export: {missing[:10]}')
 
@@ -636,7 +638,13 @@ def verify(db, bundle):
             per_ledger[r['ledger_name']] += amt if r['entry_type'] == 'Dr' else -amt
     check('voucher counts by type', dict(by_type) == ref['vouchers_by_type'], ref['vouchers_by_type'], dict(by_type))
     check('every imported voucher balanced (Dr = Cr)', unbalanced == 0, 0, unbalanced)
+    # A file may cover only part of the company (e.g. just new vouchers): then the database holds more than
+    # this file describes, and figures are compared only over what the file carries.
+    partial = conn.execute('SELECT COUNT(*) FROM voucher').fetchone()[0] > len(ids)
+    bundle_ledgers = {l['name'] for l in bundle['ledgers'].values()}
     for led in conn.execute('SELECT name, opening_balance, opening_balance_type FROM ledger'):
+        if led['name'] not in bundle_ledgers:
+            continue
         ob = Decimal(repr(led['opening_balance'])).quantize(CENT)
         if ob:
             per_ledger[led['name']] += ob if led['opening_balance_type'] == 'Dr' else -ob
@@ -650,11 +658,11 @@ def verify(db, bundle):
     check('trial balance debit total', dr == tb['debit'].quantize(CENT), tb['debit'], dr)
     check('trial balance credit total', cr == tb['credit'].quantize(CENT), tb['credit'], cr)
     check('trial balance Dr = Cr', dr == cr, dr, cr)
-    # Also exercise the application's own trial-balance report path.
-    app_tb = db.get_trial_balance()
-    app_dr = sum((Decimal(repr(r['dr_amount'])).quantize(CENT) for r in app_tb), Decimal('0'))
-    app_cr = sum((Decimal(repr(r['cr_amount'])).quantize(CENT) for r in app_tb), Decimal('0'))
-    check('application trial balance report matches', (app_dr, app_cr) == (dr, cr), (str(dr), str(cr)), (str(app_dr), str(app_cr)))
+    if not partial:      # the application's own trial balance covers the whole company
+        app_tb = db.get_trial_balance()
+        app_dr = sum((Decimal(repr(r['dr_amount'])).quantize(CENT) for r in app_tb), Decimal('0'))
+        app_cr = sum((Decimal(repr(r['cr_amount'])).quantize(CENT) for r in app_tb), Decimal('0'))
+        check('application trial balance report matches', (app_dr, app_cr) == (dr, cr), (str(dr), str(cr)), (str(app_dr), str(app_cr)))
     ledgers_expected = {l['name'] for l in bundle['ledgers'].values() if l['parent']}
     ledgers_present = {r[0] for r in conn.execute('SELECT name FROM ledger')}
     check('ledgers present', ledgers_expected <= ledgers_present, len(ledgers_expected), len(ledgers_expected & ledgers_present))

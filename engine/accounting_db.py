@@ -88,11 +88,33 @@ class EnterpriseAccountingDB(ReliabilityMixin):
         self.conn.execute("PRAGMA foreign_keys = ON;")
         self._init_schema()
         self.migrate_data()
+        self._ensure_indexes()
         self.init_reliability()
 
     def close(self):
         if self.conn:
             self.conn.close()
+
+    # Without these every ledger balance scans the whole voucher_entry table (a 22,000-voucher company took
+    # 5-15 s per report). CREATE INDEX IF NOT EXISTS is idempotent and safe on existing company files.
+    INDEXES = (
+        ('idx_voucher_entry_ledger', 'voucher_entry', 'ledger_name'),
+        ('idx_voucher_entry_voucher', 'voucher_entry', 'voucher_id'),
+        ('idx_voucher_date', 'voucher', 'date'),
+        ('idx_voucher_type', 'voucher', 'voucher_type'),
+        ('idx_voucher_number', 'voucher', 'voucher_number'),
+        ('idx_bill_allocation_ledger', 'bill_allocation', 'ledger_name'),
+        ('idx_bill_allocation_voucher', 'bill_allocation', 'voucher_id'),
+        ('idx_voucher_inventory_voucher', 'voucher_inventory', 'voucher_id'),
+        ('idx_voucher_inventory_item', 'voucher_inventory', 'stock_item_name'),
+    )
+
+    def _ensure_indexes(self):
+        existing = {r[0] for r in self.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        with self.conn:
+            for name, table, column in self.INDEXES:
+                if table in existing:
+                    self.conn.execute(f'CREATE INDEX IF NOT EXISTS {name} ON {table}({column})')
 
     def checkpoint(self):
         if self.conn:
@@ -1604,7 +1626,7 @@ class EnterpriseAccountingDB(ReliabilityMixin):
             SELECT direction, SUM(qty) as total_qty, SUM(amount) as total_amt 
             FROM voucher_inventory vi 
             JOIN voucher v ON v.id = vi.voucher_id 
-            WHERE vi.stock_item_name = ? AND v.is_cancelled = 0 AND v.is_optional = 0
+            WHERE vi.stock_item_name = ? AND v.is_cancelled = 0 AND (v.is_optional = 0 OR v.voucher_type IN ('Stock Journal', 'Delivery Note', 'Receipt Note', 'Rejections In', 'Rejections Out', 'Material In', 'Material Out'))
             GROUP BY direction
         """, (item_name,))
 
@@ -1623,7 +1645,9 @@ class EnterpriseAccountingDB(ReliabilityMixin):
         total_in_qty = op_qty + in_qty
         total_in_val = op_val + in_amt
         avg_rate = (total_in_val / total_in_qty).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if total_in_qty > Decimal("0") else op_rate
-        closing_val = (closing_qty * avg_rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if closing_qty > Decimal("0") else Decimal("0.00")
+        # TallyPrime values negative stock too (verified on one item to the paisa: at the average inward rate);
+        # it was valued at zero before, which hid a large part of the cost of sales.
+        closing_val = (closing_qty * avg_rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if closing_qty != Decimal("0") else Decimal("0.00")
 
         closing_val = self.inventory_value(item_name, closing_qty, closing_val)
         if closing_qty > 0:
@@ -1684,7 +1708,7 @@ class EnterpriseAccountingDB(ReliabilityMixin):
                 SELECT vi.stock_item_name, SUM(CASE WHEN vi.direction='In' THEN vi.qty ELSE -vi.qty END) as net_qty
                 FROM voucher_inventory vi
                 JOIN voucher v ON v.id = vi.voucher_id
-                WHERE vi.godown_name = ? AND v.is_cancelled = 0 AND v.is_optional = 0
+                WHERE vi.godown_name = ? AND v.is_cancelled = 0 AND (v.is_optional = 0 OR v.voucher_type IN ('Stock Journal', 'Delivery Note', 'Receipt Note', 'Rejections In', 'Rejections Out', 'Material In', 'Material Out'))
                 GROUP BY vi.stock_item_name
             """, (g,))
             for r in cursor.fetchall():
@@ -2078,42 +2102,44 @@ class EnterpriseAccountingDB(ReliabilityMixin):
     # -------------------------------------------------------------------------
     def get_outstanding_bills(self, group_filter: str = "Sundry Debtors") -> List[Dict[str, Any]]:
         """
-        Calculates exact net pending amount for each bill by matching New Ref with Agst Ref.
+        Pending amount per bill reference, matching New Ref with Agst Ref the way TallyPrime's Bills
+        Receivable / Bills Payable reports do (verified against a real company: identical bill list).
+
+        A bill is receivable when its net balance is a debit and payable when it is a credit, whatever
+        group the party is in; a Sundry Creditor with a debit bill is a receivable. ``group_filter`` only
+        selects the side: "Sundry Debtors" = receivables (debit), anything else = payables (credit).
+        Nameless On Account allocations are not bills and are left out of this list.
         """
+        receivable = group_filter == "Sundry Debtors"
         cursor = self.conn.cursor()
         cursor.execute("""
             SELECT ba.ledger_name, ba.ref_name, ba.due_date, ba.amount, ba.direction, v.date as bill_date, ba.ref_type
             FROM bill_allocation ba
             JOIN voucher v ON v.id = ba.voucher_id
-            JOIN ledger l ON l.name = ba.ledger_name
-            WHERE l.group_name = ? AND v.is_cancelled = 0 AND v.is_optional = 0
-            ORDER BY v.date ASC
-        """, (group_filter,))
-
-        # Group by (ledger_name, ref_name)
+            WHERE ba.ref_name <> '' AND v.is_cancelled = 0 AND v.is_optional = 0
+            ORDER BY v.date ASC, v.id ASC
+        """)
         bills_map: Dict[Tuple[str, str], Dict[str, Any]] = {}
         for r in cursor.fetchall():
             key = (r["ledger_name"], r["ref_name"])
             amt = to_dec(r["amount"])
-            if key not in bills_map:
-                bills_map[key] = {
-                    "party_name": r["ledger_name"],
-                    "bill_ref": r["ref_name"],
-                    "bill_date": r["bill_date"],
-                    "due_date": r["due_date"] or r["bill_date"],
-                    "dr_total": Decimal("0.00"),
-                    "cr_total": Decimal("0.00")
-                }
+            item = bills_map.setdefault(key, {
+                "party_name": r["ledger_name"], "bill_ref": r["ref_name"], "bill_date": r["bill_date"],
+                "due_date": r["due_date"], "has_origin": False,
+                "dr_total": Decimal("0.00"), "cr_total": Decimal("0.00")})
+            if r["ref_type"] == "New Ref" and not item["has_origin"]:
+                item["bill_date"], item["due_date"], item["has_origin"] = r["bill_date"], r["due_date"], True
             if r["direction"] == "Dr":
-                bills_map[key]["dr_total"] += amt
+                item["dr_total"] += amt
             else:
-                bills_map[key]["cr_total"] += amt
+                item["cr_total"] += amt
 
         today = datetime.date.today()
         result = []
-        for key, item in bills_map.items():
-            net = item["dr_total"] - item["cr_total"] if group_filter == "Sundry Debtors" else item["cr_total"] - item["dr_total"]
-            if net > Decimal("0.00"):
+        for item in bills_map.values():
+            net = item["dr_total"] - item["cr_total"]
+            pending = net if receivable else -net
+            if pending > Decimal("0.00"):
                 b_date = datetime.date.fromisoformat(item["bill_date"])
                 age_days = (today - b_date).days
                 bracket = "0-30 Days"
@@ -2123,20 +2149,13 @@ class EnterpriseAccountingDB(ReliabilityMixin):
                     bracket = "61-90 Days"
                 elif age_days > 30:
                     bracket = "31-60 Days"
-
                 result.append({
-                    "party_name": item["party_name"],
-                    "ledger_name": item["party_name"],
-                    "bill_ref": item["bill_ref"],
-                    "bill_date": item["bill_date"],
-                    "due_date": item["due_date"],
-                    "amount": float(net),
-                    "pending_amount": float(net),
-                    "direction": "Dr" if group_filter == "Sundry Debtors" else "Cr",
-                    "age_days": max(0, age_days),
-                    "age_bracket": bracket
-                })
-
+                    "party_name": item["party_name"], "ledger_name": item["party_name"],
+                    "bill_ref": item["bill_ref"], "bill_date": item["bill_date"],
+                    "due_date": item["due_date"] or item["bill_date"],
+                    "amount": float(pending), "pending_amount": float(pending),
+                    "direction": "Dr" if receivable else "Cr",
+                    "age_days": max(0, age_days), "age_bracket": bracket})
         return result
 
     # -------------------------------------------------------------------------
@@ -2775,6 +2794,15 @@ class EnterpriseAccountingDB(ReliabilityMixin):
             })
         return tb
 
+    @staticmethod
+    def _root_group(groups, name):
+        """Top-level group (directly under Primary) that ``name`` belongs to."""
+        seen = set()
+        while name in groups and groups[name]["parent"] not in (None, "Primary") and name not in seen:
+            seen.add(name)
+            name = groups[name]["parent"]
+        return name
+
     def get_financial_summary(self) -> Dict[str, Any]:
         ledgers = self.get_ledgers()
         cursor = self.conn.cursor()
@@ -2793,7 +2821,9 @@ class EnterpriseAccountingDB(ReliabilityMixin):
         for l in ledgers:
             grp = groups.get(l["group_name"], {})
             bal_dec, btype = self.get_ledger_closing_balance(l["name"])
-            grp_name = l["group_name"]
+            # Classify by the top-level group so ledgers in sub-groups (Salary, Other Expenses, ...) count:
+            # on a real company about 12% of indirect expenses sat in sub-groups and were missed.
+            grp_name = self._root_group(groups, l["group_name"])
 
             if grp_name == "Sales Accounts":
                 sales_total += bal_dec if btype == "Cr" else -bal_dec

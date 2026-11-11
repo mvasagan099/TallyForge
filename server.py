@@ -764,13 +764,16 @@ class TallyRequestHandler(BaseHTTPRequestHandler):
 
         # Tally XML Data Interchange Export
         elif path == "/api/tally/xml/export":
-            xml_data = db.export_tally_xml()
+            from engine.tally_xml_export import export_company_xml
+            import re as _re
+            xml_bytes = export_company_xml(db)
+            safe = _re.sub(r'[^A-Za-z0-9._ -]+', '_', db.get_company().get('name', 'company')).strip() or 'company'
             self.send_response(200)
             self.send_header("Content-Type", "application/xml; charset=utf-8")
-            self.send_header("Content-Disposition", 'attachment; filename="TallyForge_Data.xml"')
-            self.send_header("Content-Length", str(len(xml_data.encode("utf-8"))))
+            self.send_header("Content-Disposition", f'attachment; filename="{safe}.xml"')
+            self.send_header("Content-Length", str(len(xml_bytes)))
             self.end_headers()
-            self.wfile.write(xml_data.encode("utf-8"))
+            self.wfile.write(xml_bytes)
             return
 
         else:
@@ -836,6 +839,15 @@ class TallyRequestHandler(BaseHTTPRequestHandler):
                 if path == '/api/storage/native/sales/preview':
                     from engine.native_sales import read_sales_preview
                     return self.send_json(200, read_sales_preview(company_store.root,data.get('storage_key'),data.get('sequence')))
+                if path == '/api/storage/import/start':
+                    from engine import tally_exchange
+                    return self.send_json(202, tally_exchange.start(company_store, data))
+                if path == '/api/storage/import/status':
+                    from engine import tally_exchange
+                    return self.send_json(200, tally_exchange.status(data.get('job')))
+                if path == '/api/storage/export/xml':
+                    from engine import tally_exchange
+                    return self.send_json(200, tally_exchange.export_to_file(company_store, db, data))
                 if path == "/api/storage/path":
                     company_store.set_path(data.get("data_path"))
                 elif path == "/api/storage/create":
@@ -1882,7 +1894,13 @@ class TallyRequestHandler(BaseHTTPRequestHandler):
             xml_content = data.get("xml_data") or data.get("content") or ""
             if not xml_content:
                 return self.send_json(400, {"error": "Missing 'xml_data' parameter"})
-            res = db.import_tally_xml(xml_content)
+            if self.client_address[0] not in ("127.0.0.1", "::1") or user.get("role") != "Admin":
+                return self.send_json(403, {"error": "Only a local Admin can import company data"})
+            from engine import tally_exchange
+            try:
+                res = tally_exchange.import_xml_text(company_store, xml_content, data.get("company_name") or None)
+            except Exception as exc:
+                return self.send_json(400, {"success": False, "error": str(exc)})
             return self.send_json(200 if res.get("success") else 400, res)
 
         else:

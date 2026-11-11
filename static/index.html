@@ -931,6 +931,7 @@
                         <button class="btn-tally-primary" onclick="changeCompanyDataPath()">Specify Path</button>
                     </div>
                     <button class="btn-tally-primary" onclick="openNativeTally()">Connect to TallyPrime (read-only)</button>
+                    <button class="btn-tally-primary" onclick="openTallyExchange()">Import / Export Tally data</button>
                     <p id="company-storage-status" role="status" style="color:var(--accent-danger);"></p>
                     <div id="company-list-container" style="max-height:160px; overflow-y:auto; border:1px solid var(--border-color); border-radius:var(--radius-xs); padding:6px; margin-bottom:12px;"></div>
                     <div style="display:flex; gap:8px;">
@@ -1827,9 +1828,45 @@
         </details>
       </div>
     </div>
+    <div class="modal-overlay" id="tally-exchange-modal" style="display:none;z-index:10002;" onclick="if(event.target===this)this.style.display='none'">
+      <div class="modal-dialog" style="width:820px;max-width:96vw;max-height:92vh;overflow:auto;padding:24px;">
+        <button style="float:right;" onclick="document.getElementById('tally-exchange-modal').style.display='none'">Close</button>
+        <h2>Import / Export Tally data</h2>
+        <style>#tally-exchange-modal label{display:block;margin:12px 0 4px}#tally-exchange-modal label.inline{display:flex;gap:8px;align-items:center}#tally-exchange-modal input.tally-input,#tally-exchange-modal select{width:100%;box-sizing:border-box}#tally-exchange-modal details{margin:14px 0;padding-bottom:8px;border-bottom:1px solid var(--border-color)}#tally-exchange-modal summary{cursor:pointer;margin-bottom:6px}#tally-exchange-modal button{margin:8px 8px 0 0}</style>
+        <p id="exchange-status" role="status"></p>
+        <div id="exchange-result"></div>
+        <details open><summary><strong>Import from Tally export files</strong></summary>
+          <p>A folder holding <code>Master.xml</code> and optionally <code>DayBook.xml</code> / <code>Transactions.xml</code> exported from TallyPrime. The files are only read. Importing again updates the same company and changes nothing that is unchanged.</p>
+          <label>Folder <input id="exchange-folder" class="tally-input" placeholder="C:\path\to\export folder"></label>
+          <button class="btn-tally-primary" onclick="importTallyFolder()">Import files</button>
+        </details>
+        <details><summary><strong>Import live from a running TallyPrime (read-only)</strong></summary>
+          <p>Reads every master, voucher, bill and balance with read-only requests, one at a time, then compares the result with TallyPrime's own Trial Balance. It can load TallyPrime heavily on a large company.</p>
+          <label>Tally server <input id="exchange-endpoint" class="tally-input" value="http://127.0.0.1:9000"></label>
+          <button onclick="listExchangeCompanies()">List loaded companies</button>
+          <label>Company <select id="exchange-company" class="tally-input"></select></label>
+          <label>Save raw responses to a new empty folder (optional, enables offline re-import) <input id="exchange-capture" class="tally-input" placeholder="C:\path\to\new capture folder"></label>
+          <label class="inline"><input type="checkbox" id="exchange-confirm-live"> I saved my work in TallyPrime and will not use it during the import</label>
+          <button class="btn-tally-primary" onclick="importTallyLive()">Import from TallyPrime</button>
+        </details>
+        <details><summary><strong>Re-import a saved capture (offline)</strong></summary>
+          <label>Company name <input id="exchange-replay-company" class="tally-input"></label>
+          <label>Capture folder <input id="exchange-replay" class="tally-input" placeholder="C:\path\to\capture folder"></label>
+          <button class="btn-tally-primary" onclick="importTallyReplay()">Import capture</button>
+        </details>
+        <details><summary><strong>Export the active company as Tally XML</strong></summary>
+          <p>Writes every group, ledger, voucher, bill and inventory line. It is checked by re-importing it into a fresh company. TallyForge never writes to TallyPrime; whether TallyPrime accepts the file has not been tested.</p>
+          <label>Save to (folder or file) <input id="exchange-export-path" class="tally-input" placeholder="C:\path\to\folder"></label>
+          <label class="inline"><input type="checkbox" id="exchange-overwrite"> Overwrite an existing file</label>
+          <button class="btn-tally-primary" onclick="exportTallyXml()">Save to disk</button>
+          <button onclick="downloadActiveTallyXml()">Download</button>
+        </details>
+      </div>
+    </div>
     <!-- Script Entrypoint -->
     <script src="/static/tally.js"></script>
     <script src="/static/company-operations.js"></script>
     <script src="/static/tally-native.js"></script>
+    <script src="/static/tally-exchange.js"></script>
 </body>
 </html>
