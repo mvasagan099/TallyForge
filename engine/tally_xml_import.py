@@ -529,6 +529,10 @@ def import_bundle(db, bundle):
         if missing:
             raise TallyImportError(f'Vouchers reference ledgers absent from the master export: {missing[:10]}')
 
+        # Stock item masters (only a live read supplies them): unit, costing and opening stock.
+        for item in (bundle.get('stock_items') or {}).values():
+            _apply_stock_master(conn, cid, item, summary)
+
         # Vouchers
         for v in sorted(bundle['vouchers'].values(), key=lambda x: (x['date'], x['guid'])):
             if v['guid'] in rejected:
@@ -586,6 +590,26 @@ def import_bundle(db, bundle):
 def _base_symbol(conn):
     row = conn.execute('SELECT currency_symbol FROM company WHERE id=1').fetchone()
     return row[0] if row else '₹'
+
+
+def _apply_stock_master(conn, cid, item, summary):
+    unit = item['unit'] or 'Nos'
+    if not conn.execute('SELECT 1 FROM uom WHERE symbol=?', (unit,)).fetchone():
+        conn.execute('INSERT INTO uom(symbol, formal_name, decimal_places) VALUES(?,?,2)', (unit, unit))
+        summary['units_created'] += 1
+    qty, value = item['opening_qty'], item['opening_value']
+    rate = (value / qty).quantize(Decimal('0.0001')) if qty else Decimal('0')
+    method = 'Average Cost' if (item['costing'] or '').lower().startswith('avg') else (item['costing'] or 'Average Cost')
+    row = conn.execute('SELECT id FROM stock_item WHERE name=?', (item['name'],)).fetchone()
+    if row:
+        conn.execute('UPDATE stock_item SET uom_symbol=?, opening_qty=?, opening_rate=?, opening_value=?, valuation_method=? WHERE id=?',
+                     (unit, float(qty), float(rate), float(value), method, row[0]))
+        summary['stock_items_updated'] += 1
+    else:
+        conn.execute("""INSERT INTO stock_item(name, group_name, uom_symbol, hsn_code, gst_rate, opening_qty, opening_rate,
+                        opening_value, valuation_method, company_id) VALUES(?, 'Primary', ?, '', 0.0, ?, ?, ?, ?, ?)""",
+                     (item['name'], unit, float(qty), float(rate), float(value), method, cid))
+        summary['stock_items_created'] += 1
 
 
 def _ensure_stock_item(conn, cid, inv, summary):

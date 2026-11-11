@@ -11,6 +11,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from engine import tally_bridge  # noqa: E402
+from engine.accounting_db import EnterpriseAccountingDB  # noqa: E402
 from engine.tally_live import (import_from_tally, month_ranges, parse_ledger_balances,  # noqa: E402
                                parse_trial_balance, Source)
 from engine.tally_xml_import import TallyImportError  # noqa: E402
@@ -114,6 +115,11 @@ class FakeTally:
             return HEAD.format(self.company).encode()
         if key == 'List of Accounts':
             return envelope([m for m in LIVE_MASTERS]).encode('utf-16')
+        if key == 'TFStockItems':
+            return HEAD.format('<STOCKITEM NAME="Rice" RESERVEDNAME=""><PARENT TYPE="String">&#4; Primary</PARENT>'
+                               '<COSTINGMETHOD TYPE="String">Avg. Cost</COSTINGMETHOD><BASEUNITS TYPE="String">Kg</BASEUNITS>'
+                               '<OPENINGBALANCE TYPE="Quantity"> 10 Kg = 0 bag</OPENINGBALANCE>'
+                               '<OPENINGVALUE TYPE="Amount">-250.00</OPENINGVALUE></STOCKITEM>').encode()
         if key == 'TFLedgers':
             return ledger_collection()
         if key == 'TFCensus':
@@ -158,8 +164,15 @@ class LiveImportTests(unittest.TestCase):
         self.assertEqual(report['live']['census'].get('Payment/cancelled'), 1)
         self.assertEqual(report['live']['census'].get('Journal/optional'), 1)
         self.assertEqual(report['import']['counts']['vouchers_created'], 7)
-        # 1 company + masters + ledgers + census + 2 trial balances + 1 voucher month
-        self.assertEqual(len(tally.requests), 7)
+        # 1 company + masters + stock items + ledgers + census + 2 trial balances + 1 voucher month
+        self.assertEqual(len(tally.requests), 8)
+        # Stock masters give opening stock, the base unit (not a compound unit) and the costing method.
+        db = EnterpriseAccountingDB(str(next(self.data.glob('1*/company.db'))), seed_demo=False)
+        try:
+            row = db.conn.execute("SELECT uom_symbol, opening_qty, opening_value, opening_rate, valuation_method FROM stock_item WHERE name='Rice'").fetchone()
+            self.assertEqual(tuple(row), ('Kg', 10.0, 250.0, 25.0, 'Average Cost'))
+        finally:
+            db.close()
 
     def test_bill_references_are_requested_and_imported(self):
         tally, report = self.run_import()

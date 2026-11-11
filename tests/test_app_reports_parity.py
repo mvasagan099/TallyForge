@@ -69,6 +69,47 @@ class ReportParityTests(unittest.TestCase):
         self.db.conn.commit()
         self.assertEqual(self.db.get_stock_item('Toor')['closing_qty'], 2.0)
 
+    def test_average_cost_is_a_running_average_in_date_order(self):
+        self.db.add_stock_item('Toor', uom_symbol='Kg')
+        self.db.add_ledger('Purchases', 'Purchase Accounts')
+        self.db.add_ledger('Sales', 'Sales Accounts')
+
+        def buy(date, qty, rate):
+            amount = qty * rate
+            self.db.add_voucher('Purchase', date, 'buy', [{'ledger_name': 'Purchases', 'entry_type': 'Dr', 'amount': amount},
+                                                          {'ledger_name': 'Cash', 'entry_type': 'Cr', 'amount': amount}],
+                                inventory_items=[{'stock_item_name': 'Toor', 'qty': qty, 'rate': rate, 'amount': amount, 'direction': 'In'}])
+        buy('2026-04-01', 10, 10)
+        self.db.add_voucher('Sales', '2026-04-02', 'sell', [{'ledger_name': 'Cash', 'entry_type': 'Dr', 'amount': 100},
+                                                            {'ledger_name': 'Sales', 'entry_type': 'Cr', 'amount': 100}],
+                            inventory_items=[{'stock_item_name': 'Toor', 'qty': 5, 'rate': 20, 'amount': 100, 'direction': 'Out'}])
+        buy('2026-04-03', 5, 30)
+        item = self.db.get_stock_item('Toor')
+        self.assertEqual(item['closing_qty'], 10.0)
+        self.assertEqual(item['closing_value'], 200.0)      # 5 left at 10 + 5 bought at 30; the overall average gave 166.67
+
+    def test_negative_stock_is_valued_at_this_years_average_purchase_rate(self):
+        self.db.add_stock_item('Toor', uom_symbol='Kg')
+        self.db.add_ledger('Purchases', 'Purchase Accounts')
+        self.db.add_ledger('Sales', 'Sales Accounts')
+        self.db.set_negative_stock_policy(True)
+
+        def move(kind, date, qty, rate):
+            amount = qty * rate
+            if kind == 'Purchase':
+                lines = [{'ledger_name': 'Purchases', 'entry_type': 'Dr', 'amount': amount}, {'ledger_name': 'Cash', 'entry_type': 'Cr', 'amount': amount}]
+            else:
+                lines = [{'ledger_name': 'Cash', 'entry_type': 'Dr', 'amount': amount}, {'ledger_name': 'Sales', 'entry_type': 'Cr', 'amount': amount}]
+            self.db.add_voucher(kind, date, 'x', lines, inventory_items=[{'stock_item_name': 'Toor', 'qty': qty, 'rate': rate, 'amount': amount,
+                                                                          'direction': 'In' if kind == 'Purchase' else 'Out'}])
+        move('Purchase', '2026-02-01', 10, 10)      # last financial year, sold out before 1 April
+        move('Sales', '2026-03-01', 10, 20)
+        move('Purchase', '2026-05-01', 10, 30)
+        move('Sales', '2026-05-02', 15, 40)
+        item = self.db.get_stock_item('Toor')
+        self.assertEqual(item['closing_qty'], -5.0)
+        self.assertEqual(item['closing_value'], -150.0)   # 5 short at this year's purchase rate (30); the all-time average (20) gave -100
+
     def test_outstanding_bills_are_classified_by_balance_side_like_tallyprime(self):
         self.db.add_ledger('Buyer', 'Sundry Debtors')
         self.db.add_ledger('Supplier', 'Sundry Creditors')

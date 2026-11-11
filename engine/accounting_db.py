@@ -1611,6 +1611,50 @@ class EnterpriseAccountingDB(ReliabilityMixin):
             self._log_edit("StockItem", name, "CREATE", f"Created stock item {name} under {group_name}")
         return True
 
+    def _stock_walk(self, item_name, op_qty, op_val):
+        """Walk an item's movements in date order the way TallyPrime's Average Cost does.
+
+        Returns (running_value, running_qty, year_rate):
+        * running_value - value after costing each issue at the running average at that moment, so earlier
+          cheap or dear stock is not averaged with later purchases. Positive-stock items land within 1-3% of
+          TallyPrime's Stock Summary on a real company (the plain overall average was 4-13% out).
+        * year_rate - average rate of this financial year's purchases (plus stock carried in at the start of the
+          year). TallyPrime values a NEGATIVE closing balance at that rate: on a real company it reproduced
+          the rate to four decimals (50.2189 per kg) where the all-time average did not. The year starts on 1 April.
+        """
+        rows = self.conn.execute("""
+            SELECT v.date, vi.direction, vi.qty, vi.amount FROM voucher_inventory vi JOIN voucher v ON v.id = vi.voucher_id
+            WHERE vi.stock_item_name = ? AND v.is_cancelled = 0 AND (v.is_optional = 0 OR v.voucher_type IN
+                  ('Stock Journal', 'Delivery Note', 'Receipt Note', 'Rejections In', 'Rejections Out', 'Material In', 'Material Out'))
+            ORDER BY v.date, v.id, vi.id""", (item_name,)).fetchall()
+        zero = Decimal("0")
+        qty, value = op_qty, op_val
+        rate = (op_val / op_qty) if op_qty > 0 else zero
+        year_start = None
+        if rows:
+            last = str(rows[-1]["date"])
+            year = int(last[:4]) - (1 if int(last[5:7]) < 4 else 0)
+            year_start = f"{year}-04-01"
+        year_qty = year_val = None
+        for r in rows:
+            if year_qty is None and str(r["date"]) >= year_start:
+                year_qty, year_val = (qty, value) if qty > 0 else (zero, zero)
+            amount = to_dec(r["amount"])
+            moved = to_qty_dec(r["qty"])
+            if r["direction"] == "In":
+                qty += moved
+                value += amount
+                if qty > 0:
+                    rate = value / qty
+                if year_qty is not None:
+                    year_qty += moved
+                    year_val += amount
+            else:
+                value -= moved * (value / qty if qty > 0 else rate)   # short stock is issued at the last known rate
+                qty -= moved
+        year_rate = (year_val / year_qty) if year_qty else None
+        return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), qty, year_rate
+
     def get_stock_item_summary(self, item_name: str) -> Dict[str, Any]:
         cursor = self.conn.cursor()
         cursor.execute("SELECT opening_qty, opening_rate, opening_value, uom_symbol, reorder_level FROM stock_item WHERE name = ?", (item_name,))
@@ -1649,6 +1693,12 @@ class EnterpriseAccountingDB(ReliabilityMixin):
         # it was valued at zero before, which hid a large part of the cost of sales.
         closing_val = (closing_qty * avg_rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if closing_qty != Decimal("0") else Decimal("0.00")
 
+        if closing_qty != 0:
+            run_val, _, year_rate = self._stock_walk(item_name, op_qty, op_val)
+            if closing_qty > 0:
+                closing_val = run_val
+            elif year_rate:
+                closing_val = (closing_qty * year_rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         closing_val = self.inventory_value(item_name, closing_qty, closing_val)
         if closing_qty > 0:
             avg_rate = (closing_val / closing_qty).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)

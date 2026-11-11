@@ -25,6 +25,8 @@ from engine.tally_xml_import import (CENT, TallyImportError, _amount, _sanitize,
 
 LIVE_MAX_BYTES = 160 * 1024 * 1024
 LIVE_TIMEOUT = 180
+STOCK_METHODS = ('Name', 'BaseUnits', 'CostingMethod', 'ValuationMethod', 'OpeningBalance', 'OpeningValue')
+
 VOUCHER_METHODS = ('GUID', 'MasterID', 'AlterID', 'Date', 'VoucherNumber', 'VoucherTypeName', 'PartyLedgerName',
                    'Narration', 'Reference', 'IsCancelled', 'IsOptional', 'IsDeleted',
                    'AllLedgerEntries.LedgerName', 'AllLedgerEntries.Amount', 'AllLedgerEntries.IsDeemedPositive',
@@ -178,6 +180,28 @@ class Source:
         return raw
 
 
+def parse_stock_items(raw):
+    """Stock item masters from TallyPrime's own collection: unit, costing method, opening quantity and value.
+
+    Tally writes opening stock value as a debit (negative); the app stores it positive."""
+    out = {}
+    root, fix = _tree(raw)
+    clean = lambda v: fix(v).strip()
+    for node in root.iter('STOCKITEM'):
+        name = clean(node.get('NAME'))
+        if not name:
+            continue
+        qty_text = (node.findtext('OPENINGBALANCE') or '').strip()
+        m = re.match(r'-?\d+(?:\.\d+)?', qty_text)
+        value_text = (node.findtext('OPENINGVALUE') or '').strip()
+        value = abs(Decimal(value_text)) if value_text else Decimal('0')
+        qty = abs(Decimal(m.group())) if m else Decimal('0')
+        out[name] = {'name': name, 'unit': clean(node.findtext('BASEUNITS')) or None, 'opening_qty': qty,
+                     'opening_value': value, 'costing': clean(node.findtext('COSTINGMETHOD')) or None,
+                     'valuation': clean(node.findtext('VALUATIONMETHOD')) or None}
+    return out
+
+
 def fetch_all(source, company, as_at=None):
     """Fetch everything needed for a full import and reconciliation. Returns a dict of raw responses."""
     info = parse_company_info(source.get('company', lambda: tally_bridge.collection_request(
@@ -195,6 +219,14 @@ def fetch_all(source, company, as_at=None):
         'SVFROMDATE': books_from.replace('-', ''), 'SVTODATE': books_from.replace('-', ''), 'EXPLODEFLAG': 'Yes'}))
     raw['tb_close'] = source.get('tb_close', lambda: tally_bridge.report_request('Trial Balance', company, {
         'SVFROMDATE': books_from.replace('-', ''), 'SVTODATE': end.replace('-', ''), 'EXPLODEFLAG': 'Yes'}))
+    try:
+        raw['stock_items'] = source.get('stock_items', lambda: tally_bridge.collection_request(
+            # Opening stock is relative to the period asked for: without a period it is the opening of the
+            # current financial year (a carry-forward), which the vouchers already include.
+            'TFStockItems', 'StockItem', STOCK_METHODS, company, books_from, books_from))
+    except TallyImportError:
+        if source.live:
+            raise            # an older capture simply has no stock masters; a live read must have them
     census = parse_census(raw['census'])
     months = sorted({c['date'][:6] for c in census if c['date']})
     out['months'] = []
@@ -216,6 +248,7 @@ def build_bundle(fetched):
     items = [('masters', 'tally-live', raw['masters'], hashlib.sha256(raw['masters']).hexdigest())]
     items += [(label, 'tally-live', raw[label], hashlib.sha256(raw[label]).hexdigest()) for label in fetched['months']]
     bundle = bundle_from_raw(items)
+    bundle['stock_items'] = parse_stock_items(raw['stock_items']) if raw.get('stock_items') else {}
     balances = parse_ledger_balances(raw['ledgers'])
     census = parse_census(raw['census'])
     # Opening balances: TallyPrime's own ledger collection is authoritative; masters omit them.
