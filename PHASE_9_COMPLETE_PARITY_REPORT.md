@@ -1,3 +1,5 @@
+> Historical report: claims of complete parity, statutory certification and AES-GCM live-data encryption are not current verified guarantees. See [PARITY_IMPLEMENTATION_STATUS.md](PARITY_IMPLEMENTATION_STATUS.md) for actual implementation status and limitations.
+
 # PHASE 9 FINAL ENTERPRISE AUDIT & PRODUCTION SIGN-OFF REPORT
 
 **Project:** TallyPrime Enterprise Offline (2026 Release 7.2 + ERPNext Full Parity)  

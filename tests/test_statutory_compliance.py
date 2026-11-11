@@ -33,6 +33,9 @@ class TestStatutoryCompliance(unittest.TestCase):
         self.test_dir = tempfile.mkdtemp()
         self.db_path = os.path.join(self.test_dir, "test_statutory.db")
         self.db = EnterpriseAccountingDB(self.db_path)
+        # NIC exports now require explicit party details instead of fabricated fallbacks.
+        with self.db.conn:
+            self.db.conn.execute("UPDATE ledger SET address='Buyer test address',pincode='560001' WHERE name='Acme Technologies (Debtor)'")
 
     def tearDown(self):
         self.db.close()
@@ -178,6 +181,8 @@ class TestStatutoryCompliance(unittest.TestCase):
             ]
         )
 
+        with self.db.conn:
+            self.db.conn.execute("UPDATE voucher SET vehicle_no='KA01AB1234',distance_km=50 WHERE id=?", (vid,))
         eway = self.db.generate_eway_bill_json(vid)
         self.assertEqual(eway["supplyType"], "O")
         self.assertEqual(eway["subSupplyType"], "1")

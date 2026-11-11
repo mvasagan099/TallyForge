@@ -2,7 +2,7 @@
 
 > **An independently rebuilt accounting and business management application inspired by TallyPrime's functionality.**
 
-A **100% fully offline**, keyboard-driven enterprise accounting system and **TDL (Tally Definition Language)** runtime engine replicating the authentic placements, screen layouts, workflows, financial math, and shortcut keys of TallyPrime (Release 7.2 enterprise feature set).
+A local accounting application with keyboard navigation and a subset of the TDL language. TallyPrime compatibility and feature parity are incomplete. See [current implementation status](PARITY_IMPLEMENTATION_STATUS.md) for tested features and remaining gaps.
 
 - **Application:** TallyForge
 - **Executable:** `TallyForge.exe` (Windows) / `TallyForge.app` (macOS)
@@ -13,8 +13,8 @@ A **100% fully offline**, keyboard-driven enterprise accounting system and **TDL
 
 ## 1. 100% Offline Architecture (Zero Cloud / Internet Dependencies)
 
-- **Strictly Offline**: Zero external network calls, zero CDNs, zero remote tracking/telemetry. Socket-isolated verification confirmed.
-- **Local Embedded Database**: Stores company masters, 28 Indian accounting groups, ledgers, inventory stock items, units of measure, compound units, godowns, batches, BOMs, employees, price levels, cheque books, and double-entry voucher transactions locally in `tally_data.db` (enforcing `PRAGMA foreign_keys = ON;`).
+- **Local by default**: Core accounting does not require internet. Optional SMTP delivery contacts the configured mail server only when the operator explicitly sends an export. Connected GST and banking services are not implemented.
+- **Local Embedded Database**: Stores company masters, 28 Indian accounting groups, ledgers, inventory stock items, units of measure, compound units, godowns, batches, BOMs, employees, price levels, cheque books, and double-entry voucher transactions locally in one numbered folder and `company.db` per new company (legacy `tally_data.db` files remain readable) (enforcing `PRAGMA foreign_keys = ON;`).
 - **Mathematical Correctness**: Strict `Decimal` arithmetic with `ROUND_HALF_UP` quantization across all accounting, tax, inventory, and payroll computations ($\sum\text{Dr} = \sum\text{Cr}$).
 - **Zero Configuration**: Ready to run out of the box on macOS, Linux, or Windows.
 
@@ -61,8 +61,15 @@ The interface strictly matches the dual-pane split layout and button placements 
 
 ### 1. Multi-Company & Consolidation
 - Create, Alter, Select, Shut, and Delete companies.
-- Multi-company database with active company switching (`/api/companies/switch`).
-- Group company consolidation across member company IDs with cross-company elimination.
+- On startup, choose a **Company Data Path**, then select or create a company before opening the Gateway. **F3** opens the chooser again. Company rows show the number, financial year, books beginning date, last voucher date, and GSTIN.
+- New companies use `<data-path>/10000/company.db`, `10001/company.db`, etc., with separate SQLite databases, standard masters, and no demo balances or stock. Backups and default archives are saved beside the active company database.
+- Use **Specify Path** with an existing absolute folder path. The last selected path is remembered in `company-path.json` beside the launcher's original data folder. `python3 desktop_app.py --data-dir "/path/to/companies"` or `TALLY_DATA_DIR` explicitly overrides that remembered path on launch.
+- Legacy multi-company `tally_data.db` files appear as **Legacy** entries. They are opened in place; this change does not split, overwrite, or automatically migrate existing books. Existing shared-database isolation limitations remain for legacy entries.
+- Each window has its own company context and login token. Requests bind the selected database independently; unfinished vouchers require discard confirmation before choosing another company. Secured companies require credentials, while unsecured companies retain explicit local-owner access.
+- Company Tools includes full SQLite backup/restore, local schedules, inventory valuation choices, XLSX exchange, local IMS review, monthly registration-scoped GST book reviews, saved consolidation groups, configurable payroll accounts and reviewed attendance-based monthly payroll with saved/printable payslips. See the status document for limits and external dependencies.
+- Native Tally folders are detected separately for metadata inspection. A read-only TallyPrime server connection can display loaded companies, ledgers and vouchers without manual exports. A running TallyPrime engine is required; standalone native financial decoding is not implemented.
+- New folder catalogue APIs: `GET /api/storage`; `POST /api/storage/path`, `/api/storage/create`, `/api/storage/select`. Legacy APIs remain available for existing integrations.
+- Legacy shared-database group company consolidation across member company IDs with cross-company elimination. Company Tools supports saved groups, protected-member authorisation, combined totals/trial balances and explicit reciprocal-balance/income-expense eliminations across separate files. Advanced and statutory consolidated statements remain incomplete.
 - Consolidated Balance Sheet, Consolidated P&L, and Consolidated Trial Balance.
 
 ### 2. Year-End Closing & Financial Year Split

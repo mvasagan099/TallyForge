@@ -12,11 +12,10 @@ import sqlite3
 import argparse
 import threading
 import webbrowser
-from http.server import HTTPServer
 
 # Command-line argument parsing
 parser = argparse.ArgumentParser(description="TallyForge — Reverse Engineered. Rebuilt. Reimagined.")
-parser.add_argument("--data-dir", default=None, help="Directory to store tally_data.db and backups")
+parser.add_argument("--data-dir", default=None, help="Company data folder (numbered company folders and legacy database)")
 parser.add_argument("--port", type=int, default=8080, help="Local HTTP port (default: 8080)")
 parser.add_argument("--host", default="127.0.0.1", help="Loopback host to bind (default: 127.0.0.1)")
 parser.add_argument("--no-browser", action="store_true", help="Do not automatically launch web browser")
@@ -25,12 +24,15 @@ cli_args, unknown = parser.parse_known_args()
 if cli_args.data_dir:
     os.environ["TALLY_DATA_DIR"] = os.path.abspath(cli_args.data_dir)
 
-from server import TallyRequestHandler, db, BASE_DIR, DATA_DIR
+from server import TallyRequestHandler, DefaultHTTPServer, db, BASE_DIR, DATA_DIR
 
 def run_server(host="127.0.0.1", port=8080):
     server_address = (host, port)
-    httpd = HTTPServer(server_address, TallyRequestHandler)
+    httpd = DefaultHTTPServer(server_address, TallyRequestHandler)
     print(f"[Desktop App] Server started at http://{host}:{port}")
+    from engine.backup_scheduler import start
+    from server import company_store, _company_lock
+    start(company_store, _company_lock)
     try:
         httpd.serve_forever()
     except Exception:
@@ -50,6 +52,8 @@ def main():
     db_file = os.path.join(DATA_DIR, "tally_data.db")
     print(f"[*] Checking database integrity at: {db_file}")
     try:
+        if not os.path.isfile(db_file):
+            raise FileNotFoundError("No legacy database; select or create a company in the startup chooser")
         conn = sqlite3.connect(db_file)
         cur = conn.cursor()
         res = cur.execute("PRAGMA integrity_check;").fetchone()

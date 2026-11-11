@@ -40,12 +40,39 @@ window.alert = function(msg) {
     }
 };
 
+let pendingCompanyKey = null;
+let companyReady = false;
+let companyContext = sessionStorage.getItem('tf_company_context');
+const companyFetch = window.fetch.bind(window);
+window.fetch = async function(input, options = {}) {
+    if (typeof input === 'string' && input.startsWith('/api/')) {
+        const headers = new Headers(options.headers || {});
+        if (companyContext) headers.set('X-Company-Context', companyContext);
+        const token = sessionStorage.getItem('tally_session_token');
+        if (token && !input.endsWith('/storage/select')) headers.set('Authorization', 'Bearer ' + token);
+        options = {...options, headers};
+    }
+    const response = await companyFetch(input, options);
+    if (response.status === 409) {
+        companyReady = false;
+        companyContext = null;
+        sessionStorage.removeItem('tf_company_context');
+        sessionStorage.removeItem('tally_session_token');
+        openCompanyModal();
+        throw new Error('Company session closed. Select it again before continuing.');
+    }
+    if (response.status === 401 && !String(input).includes('/storage/select') && !String(input).includes('/auth/login')) openAuthModal();
+    return response;
+};
+
 document.addEventListener("DOMContentLoaded", () => {
     initTheme();
-    loadAppState();
     setupKeyboardListeners();
     initGatewayItems();
-    loadDashboardData();
+    companyContext = null;
+    sessionStorage.removeItem('tf_company_context');
+    sessionStorage.removeItem('tally_session_token');
+    openCompanyModal();
 });
 
 // -------------------------------------------------------------------------
@@ -96,7 +123,9 @@ function toggleSidebarCollapse() {
 async function loadAppState() {
     try {
         const res = await fetch("/api/state");
+        if (!res.ok) throw new Error("Unable to load company");
         const data = await res.json();
+        companyContext = data.company_context;
         state.company = data.company || {};
         state.ledgers = data.ledgers || [];
         state.stockItems = data.stock_items || [];
@@ -119,10 +148,12 @@ async function loadAppState() {
         if (stockCountEl) stockCountEl.textContent = `${state.stockItems.length} Stock Items`;
 
         populateVoucherDropdowns();
+        if (typeof populateGSTRegistrationChoices === 'function') populateGSTRegistrationChoices();
         populateReportLedgerSelect();
         loadDashboardData();
     } catch (err) {
         console.error("Error loading application state:", err);
+        throw err;
     }
 }
 
@@ -191,6 +222,11 @@ function executeGatewayItem(item) {
 
 function setupKeyboardListeners() {
     window.addEventListener("keydown", (e) => {
+        if (document.getElementById('company-modal').style.display === 'flex') {
+            if (e.key === 'Escape') { e.preventDefault(); closeCompanyModal(); }
+            return;
+        }
+        if (!companyReady) return;
         // Cmd+K / Ctrl+K / Alt+G: Global Command Palette
         if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
             e.preventDefault();
@@ -224,7 +260,7 @@ function setupKeyboardListeners() {
         if (e.key === "Escape") {
             e.preventDefault();
             const modals = [
-                "command-palette-modal", "goto-modal", "company-modal", "data-modal", "export-modal",
+                "company-operations-modal", "command-palette-modal", "goto-modal", "company-modal", "data-modal", "export-modal",
                 "print-modal", "exchange-modal", "import-modal", "features-modal", "help-modal", "auth-modal"
             ];
             for (const mId of modals) {
@@ -550,6 +586,8 @@ async function openVoucherForViewOrAlter(voucherId) {
         openVoucherEntry(vch.voucher_type);
         const idInput = document.getElementById("vch-id");
         if (idInput) idInput.value = vch.id;
+        const registration = document.getElementById('vch-gst-registration');
+        if (registration) {registration.value = vch.gst_registration_id ? String(vch.gst_registration_id) : ''; registration.disabled = true;}
         document.getElementById("vch-title").textContent = `Accounting Voucher Alteration #${vch.id} (${vch.voucher_type})`;
         document.getElementById("breadcrumb").textContent = `Gateway of Tally > Accounting Voucher > Alter #${vch.id}`;
         document.getElementById("vch-date").value = vch.date;
@@ -617,6 +655,8 @@ function openVoucherEntry(type) {
     const vchIdInput = document.getElementById("vch-id");
     if (vchIdInput) vchIdInput.value = "";
 
+    const registration = document.getElementById('vch-gst-registration');
+    if (registration) {registration.value = '';registration.disabled = false;}
     const historyBtn = document.getElementById("vch-history-btn");
     if (historyBtn) historyBtn.style.display = "none";
 
@@ -1111,6 +1151,8 @@ async function saveVoucher() {
         }
     }
 
+    const registrationInput = document.getElementById('vch-gst-registration');
+    if (registrationInput && registrationInput.value) payload.gst_registration_id = Number(registrationInput.value);
     const vchIdInput = document.getElementById("vch-id");
     const existingVchId = vchIdInput && vchIdInput.value ? parseInt(vchIdInput.value) : null;
 
@@ -1630,11 +1672,11 @@ function showTallyToast(msg, type = "info") {
 }
 
 // --- User Authentication Modal & Session Management ---
-let sessionToken = localStorage.getItem("tally_session_token") || "";
+let sessionToken = sessionStorage.getItem("tally_session_token") || "";
 
 function openAuthModal() {
     const modal = document.getElementById("auth-modal");
-    if (modal) modal.style.display = "flex";
+    if (modal) { modal.style.display = "flex"; modal.style.zIndex = "10000"; }
 }
 
 function closeAuthModal() {
@@ -1650,6 +1692,11 @@ async function submitUserLogin() {
         return;
     }
     try {
+        if (pendingCompanyKey) {
+            await selectStoredCompany(pendingCompanyKey, {username: u, password: p});
+            document.getElementById('login-password').value = '';
+            return;
+        }
         const res = await fetch("/api/auth/login", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1658,12 +1705,13 @@ async function submitUserLogin() {
         const data = await res.json();
         if (res.ok && data.status === "success") {
             sessionToken = data.token;
-            localStorage.setItem("tally_session_token", sessionToken);
+            sessionStorage.setItem("tally_session_token", sessionToken);
             const userLabel = document.getElementById("nav-user-label");
             if (userLabel) userLabel.innerText = data.user.username;
             const statusLabel = document.getElementById("auth-current-user-status");
             if (statusLabel) statusLabel.innerText = `Logged in as: ${data.user.username} (${data.user.role})`;
             showTallyToast(`✓ Logged in as ${data.user.username}`, "success");
+            await loadAppState();
             setTimeout(closeAuthModal, 600);
         } else {
             showTallyToast(data.error || "Login failed", "error");
@@ -1683,7 +1731,7 @@ async function submitUserLogout() {
             });
         }
         sessionToken = "";
-        localStorage.removeItem("tally_session_token");
+        sessionStorage.removeItem("tally_session_token");
         const userLabel = document.getElementById("nav-user-label");
         if (userLabel) userLabel.innerText = "Login";
         const statusLabel = document.getElementById("auth-current-user-status");
@@ -2399,16 +2447,19 @@ function openFeatures() {
 async function openCompanyModal() {
     const modal = document.getElementById("company-modal");
     if (!modal) return;
+    if (companyReady && state.currentScreen === 'voucher' && !confirm('Discard the unfinished voucher and choose another company?')) return;
     modal.style.display = "flex";
     switchCompanyTab('select');
 }
 
 function closeCompanyModal() {
+    if (!companyReady) return;
     const modal = document.getElementById("company-modal");
     if (modal) modal.style.display = "none";
 }
 
 function switchCompanyTab(tab) {
+    if (!companyReady && !['select', 'create'].includes(tab)) return;
     const tabs = ['select', 'alter', 'create', 'security', 'users', 'group'];
     tabs.forEach(t => {
         const pane = document.getElementById(`comp-pane-${t}`);
@@ -2481,35 +2532,76 @@ async function submitCreateGroupCompany() {
     }
 }
 
-async function loadCompaniesList() {
-    const container = document.getElementById("company-list-container");
-    if (!container) return;
-    container.innerHTML = "Loading companies...";
-    try {
-        const res = await fetch("/api/companies");
-        const list = await res.json();
-        container.innerHTML = "";
-        list.forEach(c => {
-            const row = document.createElement("div");
-            row.style.display = "flex";
-            row.style.justifyContent = "space-between";
-            row.style.alignItems = "center";
-            row.style.padding = "4px 8px";
-            row.style.borderBottom = "1px solid #e0f2f1";
-            row.style.background = c.is_active ? "#e8f5e9" : "#fff";
+async function storageRequest(action, body) {
+    const response = await fetch('/api/storage/' + action, {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+    });
+    const result = await response.json();
+    if (!response.ok) { const error = new Error(result.error || 'Company operation failed'); error.status = response.status; throw error; }
+    return result;
+}
 
-            row.innerHTML = `
-                <div>
-                    <strong>${c.name}</strong> ${c.is_active ? '<span style="color:#2e7d32; font-weight:bold;">[ACTIVE]</span>' : ''}
-                    <div style="font-size:0.75rem; color:#666;">GSTIN: ${c.gstin || 'Unregistered'} | FY: ${c.financial_year_from || '2026-04-01'} to ${c.financial_year_to || '2027-03-31'}</div>
-                </div>
-                ${c.is_active ? '' : `<button class="btn-tally-primary" style="padding:2px 8px; font-size:0.75rem;" onclick="switchCompany(${c.id})">Select</button>`}
-            `;
+async function changeCompanyDataPath() {
+    try {
+        await storageRequest('path', {data_path: document.getElementById('company-data-path').value});
+        await loadCompaniesList();
+    } catch (err) { document.getElementById('company-storage-status').textContent = err.message; }
+}
+
+async function selectStoredCompany(key, credentials = {}) {
+    try {
+        let result;
+        try { result = await storageRequest('select', {storage_key: key, ...credentials}); }
+        catch (err) {
+            if (err.status !== 401) throw err;
+            pendingCompanyKey = key;
+            openAuthModal();
+            document.getElementById('auth-current-user-status').textContent = 'Sign in to open the selected company';
+            return;
+        }
+        pendingCompanyKey = null;
+        closeAuthModal();
+        companyContext = result.company_context;
+        sessionStorage.setItem('tf_company_context', companyContext);
+        sessionToken = result.token || '';
+        if (sessionToken) sessionStorage.setItem('tally_session_token', sessionToken);
+        else sessionStorage.removeItem('tally_session_token');
+        await loadAppState();
+        companyReady = true;
+        goBackToGateway();
+        closeCompanyModal();
+    } catch (err) { document.getElementById('company-storage-status').textContent = err.message; }
+}
+
+async function loadCompaniesList() {
+    const container = document.getElementById('company-list-container');
+    if (!container) return;
+    container.textContent = 'Loading companies…';
+    try {
+        const res = await fetch('/api/storage', {cache: 'no-store'});
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        document.getElementById('company-data-path').value = data.data_path;
+        if (!Array.isArray(data.native_companies)) {
+            throw new Error('The running backend is outdated and cannot detect native Tally folders. Fully stop and restart TallyForge using start_tally.command, then reload this page. Refreshing the browser alone does not update the backend.');
+        }
+        document.getElementById('company-storage-status').textContent = data.errors.map(e => e.folder + ': ' + e.error).join('; ');
+        container.replaceChildren();
+        if (!data.companies.length && !data.native_companies.length) container.textContent = 'No supported companies or native Tally folders were found here.';
+        data.native_companies.forEach(c => {
+            const row=document.createElement('button');row.type='button';row.className='tally-input';row.style.cssText='display:block;width:100%;text-align:left;margin:4px 0;cursor:pointer;white-space:normal';
+            row.textContent=c.company_number+' · '+c.name+' · '+c.format+' — Open company preview';row.addEventListener('click',()=>inspectNativeCompany(c.storage_key,true));container.appendChild(row);
+        });
+        data.companies.forEach(c => {
+            const row = document.createElement('button');
+            row.type = 'button';
+            row.className = 'tally-input';
+            row.style.cssText = 'display:block;width:100%;text-align:left;margin:4px 0;cursor:pointer;white-space:normal';
+            row.textContent = `${c.company_number === 'legacy' ? 'Legacy / ' + c.id : c.company_number} · ${c.name}${c.is_active ? ' [ACTIVE]' : ''}\nFY ${c.financial_year_from} to ${c.financial_year_to} · Books ${c.books_from} · Last voucher ${c.last_voucher_date || 'None'} · GSTIN ${c.gstin || 'Unregistered'}`;
+            row.addEventListener('click', () => selectStoredCompany(c.storage_key));
             container.appendChild(row);
         });
-    } catch (err) {
-        container.innerHTML = `<span style="color:red;">Error loading companies: ${err.message}</span>`;
-    }
+    } catch (err) { container.textContent = err.message; }
 }
 
 async function switchCompany(cid) {
@@ -2612,9 +2704,14 @@ async function shutActiveCompany() {
         });
         const data = await postRes.json();
         if (postRes.ok) {
-            alert(data.message || "Company shut successfully.");
-            closeCompanyModal();
-            loadAppState();
+            companyReady = false;
+            companyContext = null;
+            sessionToken = '';
+            sessionStorage.removeItem('tf_company_context');
+            sessionStorage.removeItem('tally_session_token');
+            state.company = null;
+            document.getElementById('side-company-name').textContent = 'Select Company';
+            openCompanyModal();
         } else {
             alert(`Error: ${data.error}`);
         }
@@ -2638,9 +2735,13 @@ async function deleteActiveCompany() {
         });
         const data = await postRes.json();
         if (postRes.ok) {
-            alert(data.message || "Company deleted successfully.");
-            closeCompanyModal();
-            loadAppState();
+            alert(data.message || "Company removed from the company list.");
+            companyReady = false;
+            companyContext = null;
+            sessionStorage.removeItem('tf_company_context');
+            sessionStorage.removeItem('tally_session_token');
+            state.company = null;
+            openCompanyModal();
         } else {
             alert(`Error deleting company: ${data.error}`);
         }
@@ -2661,19 +2762,18 @@ async function submitCreateCompany() {
     }
 
     try {
-        const res = await fetch("/api/companies/create", {
-            method: "POST",
-            headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({ name, gstin, state: stateVal, state_code: code })
+        const data = await storageRequest('create', {
+            name, gstin, state: stateVal, state_code: code,
+            address: document.getElementById('new-comp-address').value.trim(),
+            pincode: document.getElementById('new-comp-pin').value.trim(),
+            financial_year_from: document.getElementById('new-comp-fy-from').value,
+            financial_year_to: document.getElementById('new-comp-fy-to').value,
+            books_from: document.getElementById('new-comp-books').value,
+            currency_symbol: document.getElementById('new-comp-currency').value.trim() || '₹'
         });
-        const data = await res.json();
-        if (res.ok) {
-            await switchCompany(data.company_id);
-            document.getElementById("new-comp-name").value = "";
-            document.getElementById("new-comp-gstin").value = "";
-        } else {
-            alert(`Error: ${data.error}`);
-        }
+        await selectStoredCompany(data.storage_key);
+        document.getElementById('new-comp-name').value = '';
+        document.getElementById('new-comp-gstin').value = '';
     } catch (err) {
         alert(`Failed: ${err.message}`);
     }
@@ -2689,18 +2789,20 @@ async function submitCompanySecurity() {
         const enabled = document.getElementById("comp-sec-enabled").checked;
         const pwd = document.getElementById("comp-sec-password").value;
 
+        const admin_username = document.getElementById('comp-admin-username').value;
+        const admin_password = document.getElementById('comp-admin-password').value;
         const postRes = await fetch("/api/companies/security", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 company_id: active.id,
                 security_enabled: enabled,
-                vault_password: pwd
+                vault_password: pwd, admin_username, admin_password
             })
         });
         const data = await postRes.json();
         if (postRes.ok) {
-            alert("✓ Company Security & TallyVault Settings Updated!");
+            alert("✓ Company access settings saved. Sign in to continue. Database encryption is a separate capability.");
             closeCompanyModal();
             loadAppState();
         } else {
@@ -3004,7 +3106,7 @@ async function renderPrintPreviewDocument() {
 
     try {
         if (docType === "invoice") {
-            const res = await fetch(`/api/gst/einvoice_json?voucher_id=${refId}`);
+            const res = await fetch(`/api/invoices/preview?voucher_id=${refId}`);
             const data = await res.json();
             if (!res.ok) {
                 container.innerHTML = `<span style="color:red;">Error: ${data.error}</span>`;
@@ -3372,26 +3474,41 @@ async function submitImportTallyXML() {
     }
 }
 
-function downloadTallyXML() {
-    window.open("/api/tally/xml/export", "_blank");
+async function downloadTallyXML() {
+    const response = await fetch('/api/tally/xml/export');
+    if (!response.ok) { alert('Unable to export company data'); return; }
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement('a'); link.href = url; link.download = 'company.xml'; link.click(); URL.revokeObjectURL(url);
 }
 
 // -------------------------------------------------------------------------
 // PHASE 4: Features Configuration Modal (F11)
 // -------------------------------------------------------------------------
-function openFeaturesModal() {
-    const modal = document.getElementById("features-modal");
-    if (modal) modal.style.display = "flex";
+async function openFeaturesModal() {
+    const modal = document.getElementById('features-modal');
+    if (modal) modal.style.display = 'flex';
+    try {
+        const response = await fetch('/api/company/features');
+        const settings = await response.json();
+        if (!response.ok) throw new Error(settings.error);
+        Object.entries(settings).forEach(([key,value]) => {const el = document.getElementById('feat-'+key); if (el) el.checked = value;});
+    } catch (err) { alert(err.message); }
 }
 
 function closeFeaturesModal() {
-    const modal = document.getElementById("features-modal");
-    if (modal) modal.style.display = "none";
+    const modal = document.getElementById('features-modal');
+    if (modal) modal.style.display = 'none';
 }
 
-function saveFeaturesConfig() {
-    alert("Company features updated and applied to active accounting environment:\n\n✓ Accounts & Bill-wise: ENABLED\n✓ Multi-Godown & BOM: ENABLED\n✓ GST & TDS Subsystems: ENABLED\n✓ Statutory MCA Audit Trail: LOCKED & COMPLIANT");
-    closeFeaturesModal();
+async function saveFeaturesConfig() {
+    try {
+        const settings = {};
+        document.querySelectorAll('#features-modal input[id^="feat-"]').forEach(el => settings[el.id.slice(5)] = el.checked);
+        await companyOperation('/api/company/features', settings);
+        closeFeaturesModal();
+        await loadAppState();
+        alert('✓ Company features saved.');
+    } catch (err) { alert(err.message); }
 }
 
 // -------------------------------------------------------------------------

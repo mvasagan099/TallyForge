@@ -1,3 +1,5 @@
+> Historical report: claims of complete parity, statutory certification and AES-GCM live-data encryption are not current verified guarantees. See [PARITY_IMPLEMENTATION_STATUS.md](PARITY_IMPLEMENTATION_STATUS.md) for actual implementation status and limitations.
+
 # PHASE 10: TALLYPRIME ENTERPRISE FINAL AUDIT & COMPREHENSIVE VERIFICATION REPORT
 **Official Baseline:** TallyPrime Release 7.2 (October 2026 Parity) & ERPNext Architecture  
 **Execution Environment:** 100% Fully Offline, Local Storage (`sqlite3` WAL), Zero External Cloud Dependencies  
