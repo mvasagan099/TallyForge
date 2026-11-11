@@ -26,7 +26,9 @@ LIVE_MASTERS = [m.replace('<OPENINGBALANCE>250000.00</OPENINGBALANCE>', '')
                  .replace('<OPENINGBALANCE>-50000.00</OPENINGBALANCE>', '') for m in MASTERS]
 
 VOUCHERS = [
-    voucher(1, 'Sales', '20260405', [entry('Acme Buyer&#13;&#10;Unit 2', '-100.00'), entry('Sales', '100.00')], 'S/1'),
+    voucher(1, 'Sales', '20260405', [entry('Acme Buyer&#13;&#10;Unit 2', '-100.00', bills=(
+        '<BILLALLOCATIONS.LIST><NAME>INV-1</NAME><BILLTYPE>New Ref</BILLTYPE><AMOUNT>-100.00</AMOUNT></BILLALLOCATIONS.LIST>'
+        '<BILLALLOCATIONS.LIST>      </BILLALLOCATIONS.LIST>')), entry('Sales', '100.00')], 'S/1'),
     voucher(2, 'Receipt', '20260406', [entry('Main Bank', '-60.50'), entry('Acme Buyer&#13;&#10;Unit 2', '60.50')], 'R/1'),
     voucher(3, 'Payment', '20260407', [entry('Rent', '-1200.25'), entry('Cash', '1200.25')], 'P/1'),
     voucher(4, 'Journal', '20260408', [entry('Cash', '-0.10'), entry('Main Bank', '0.10')], 'J/1'),
@@ -157,6 +159,21 @@ class LiveImportTests(unittest.TestCase):
         self.assertEqual(report['import']['counts']['vouchers_created'], 7)
         # 1 company + masters + ledgers + census + 2 trial balances + 1 voucher month
         self.assertEqual(len(tally.requests), 7)
+
+    def test_bill_references_are_requested_and_imported(self):
+        tally, report = self.run_import()
+        voucher_requests = [b for b in tally.requests if b'TFVouchers' in b]
+        self.assertTrue(voucher_requests)
+        for method in (b'AllLedgerEntries.BillAllocations.Name', b'AllLedgerEntries.BillAllocations.BillType',
+                       b'AllLedgerEntries.BillAllocations.Amount'):
+            self.assertIn(method, voucher_requests[0])
+        import sqlite3
+        conn = sqlite3.connect(Path(report['folder']) / 'company.db')
+        try:
+            rows = conn.execute('SELECT ledger_name, ref_type, ref_name, amount, direction FROM bill_allocation').fetchall()
+        finally:
+            conn.close()
+        self.assertEqual(rows, [('Acme Buyer\r\nUnit 2', 'New Ref', 'INV-1', 100.0, 'Dr')])
 
     def test_only_read_only_export_requests_are_ever_sent(self):
         tally, _ = self.run_import()

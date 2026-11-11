@@ -83,3 +83,14 @@ def inspect(root,key):
                 'files':inventory,'metadata_only':True,'standalone_books_readable':False,'source_files_written':False,
                 'message':'Native company detected. Preview records, compare XML references and read calibrated Sales dates/allocations without running TallyPrime. Complete financial books, posting-state interpretation and opening balances remain unfinished.'}
     raise ValueError('Native company not found in the selected data folder')
+
+
+def file_identity(st):
+    """Stable identity of a file across an open handle and a path stat.
+
+    On Windows fstat() and stat() report different inode/ctime for the same untouched file, which made
+    every read look like "the file changed"; size and mtime are the portable signal there."""
+    import os
+    if os.name == 'nt':
+        return (st.st_size, st.st_mtime_ns)
+    return (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)

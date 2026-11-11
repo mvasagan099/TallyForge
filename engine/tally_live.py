@@ -29,7 +29,10 @@ VOUCHER_METHODS = ('GUID', 'MasterID', 'AlterID', 'Date', 'VoucherNumber', 'Vouc
                    'Narration', 'Reference', 'IsCancelled', 'IsOptional', 'IsDeleted',
                    'AllLedgerEntries.LedgerName', 'AllLedgerEntries.Amount', 'AllLedgerEntries.IsDeemedPositive',
                    'AllInventoryEntries.StockItemName', 'AllInventoryEntries.ActualQty',
-                   'AllInventoryEntries.Rate', 'AllInventoryEntries.Amount')
+                   'AllInventoryEntries.Rate', 'AllInventoryEntries.Amount',
+                   # Bill references: verified on one real month (30/30 vouchers identical to the file export).
+                   'AllLedgerEntries.BillAllocations.Name', 'AllLedgerEntries.BillAllocations.BillType',
+                   'AllLedgerEntries.BillAllocations.Amount')
 CENSUS_METHODS = ('GUID', 'Date', 'VoucherTypeName', 'IsCancelled', 'IsOptional', 'IsDeleted', 'AlterID')
 LEDGER_METHODS = ('Name', 'Parent', 'OpeningBalance', 'ClosingBalance', 'GUID')
 COMPANY_METHODS = ('Name', 'GUID', 'StartingFrom', 'BooksFrom', 'EndingAt', 'LastVoucherDate')

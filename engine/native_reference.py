@@ -30,7 +30,7 @@ def _stable(path,maximum):
         if not 0<before.st_size<=maximum:raise ValueError('Reference file is empty or exceeds its size limit')
         raw=stream.read(maximum+1)
         after=os.fstat(stream.fileno())
-    identity=lambda s:(s.st_dev,s.st_ino,s.st_size,s.st_mtime_ns,s.st_ctime_ns)
+    from engine.native_tally import file_identity as identity
     if len(raw)!=before.st_size or identity(before)!=identity(after) or identity(after)!=identity(path.stat()):
         raise ValueError('Reference file changed while being read')
     return raw
@@ -107,7 +107,7 @@ def _scan(path,callback):
             if number and int.from_bytes(page[8:12],'little') and int.from_bytes(page[16:18],'little')==11:
                 callback(stream,page,number,pages)
         after=os.fstat(stream.fileno())
-    identity=lambda s:(s.st_dev,s.st_ino,s.st_size,s.st_mtime_ns,s.st_ctime_ns)
+    from engine.native_tally import file_identity as identity
     if identity(before)!=identity(after) or identity(after)!=identity(path.stat()):raise ValueError('Native source changed during comparison')
     if bad:raise ValueError('Native source failed checksum validation')
     return digest.hexdigest()

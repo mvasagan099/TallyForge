@@ -144,7 +144,7 @@ def read_directory(root, key):
                              'previous':previous,'left':left,'right':right,'next':next_page}
         after = os.fstat(stream.fileno())
         current = path.stat()
-        identity = lambda st:(st.st_dev,st.st_ino,st.st_size,st.st_mtime_ns,st.st_ctime_ns)
+        from engine.native_tally import file_identity as identity
         if identity(before) != identity(after) or identity(after) != identity(current):
             raise ValueError('TranMgr changed during directory reading; use a stable company copy')
     if bad_pages:

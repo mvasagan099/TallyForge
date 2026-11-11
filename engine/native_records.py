@@ -278,7 +278,7 @@ def read(root, key, kind='masters', offset=0, limit=50, search='', sequence=None
             total += 1
         after = os.fstat(stream.fileno())
         current = path.stat()
-        identity = lambda st: (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
+        from engine.native_tally import file_identity as identity
         if identity(before) != identity(after) or identity(after) != identity(current):
             raise ValueError('Native source changed during reading; use a stable company copy')
     if bad_pages:
