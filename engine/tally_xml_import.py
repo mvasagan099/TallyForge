@@ -208,9 +208,12 @@ def _signed_entry(entry, fix, where, ledger_tag='LEDGERNAME'):
     bills = []
     for bill in entry.findall('BILLALLOCATIONS.LIST'):
         bname = fix(bill.findtext('NAME')).strip()
+        btype = fix(bill.findtext('BILLTYPE')).strip()
         bamt = _amount(fix(bill.findtext('AMOUNT')), f'{where} bill {bname!r}')
-        if bname and bamt is not None:
-            bills.append({'name': bname, 'type': fix(bill.findtext('BILLTYPE')).strip() or 'New Ref', 'amount': bamt})
+        # 'On Account' allocations have no bill name but still count towards the party's outstanding balance.
+        # Blank placeholder blocks (no amount) and nameless non-on-account blocks are ignored.
+        if bamt is not None and (bname or btype == 'On Account'):
+            bills.append({'name': bname, 'type': btype or 'New Ref', 'amount': bamt})
     return {'ledger': ledger, 'amount': amount, 'bills': bills, 'flag_mismatch': bool(flag_mismatch)}
 
 

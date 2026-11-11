@@ -29,7 +29,8 @@ VOUCHERS = [
     voucher(1, 'Sales', '20260405', [entry('Acme Buyer&#13;&#10;Unit 2', '-100.00', bills=(
         '<BILLALLOCATIONS.LIST><NAME>INV-1</NAME><BILLTYPE>New Ref</BILLTYPE><AMOUNT>-100.00</AMOUNT></BILLALLOCATIONS.LIST>'
         '<BILLALLOCATIONS.LIST>      </BILLALLOCATIONS.LIST>')), entry('Sales', '100.00')], 'S/1'),
-    voucher(2, 'Receipt', '20260406', [entry('Main Bank', '-60.50'), entry('Acme Buyer&#13;&#10;Unit 2', '60.50')], 'R/1'),
+    voucher(2, 'Receipt', '20260406', [entry('Main Bank', '-60.50'), entry('Acme Buyer&#13;&#10;Unit 2', '60.50', bills=(
+        '<BILLALLOCATIONS.LIST><NAME/><BILLTYPE>On Account</BILLTYPE><AMOUNT>60.50</AMOUNT></BILLALLOCATIONS.LIST>'))], 'R/1'),
     voucher(3, 'Payment', '20260407', [entry('Rent', '-1200.25'), entry('Cash', '1200.25')], 'P/1'),
     voucher(4, 'Journal', '20260408', [entry('Cash', '-0.10'), entry('Main Bank', '0.10')], 'J/1'),
     voucher(5, 'Contra', '20260409', [entry('Cash', '-0.07'), entry('Main Bank', '0.07')], 'C/1'),
@@ -173,7 +174,8 @@ class LiveImportTests(unittest.TestCase):
             rows = conn.execute('SELECT ledger_name, ref_type, ref_name, amount, direction FROM bill_allocation').fetchall()
         finally:
             conn.close()
-        self.assertEqual(rows, [('Acme Buyer\r\nUnit 2', 'New Ref', 'INV-1', 100.0, 'Dr')])
+        self.assertEqual(rows, [('Acme Buyer\r\nUnit 2', 'New Ref', 'INV-1', 100.0, 'Dr'),
+                                ('Acme Buyer\r\nUnit 2', 'On Account', '', 60.5, 'Cr')])
 
     def test_only_read_only_export_requests_are_ever_sent(self):
         tally, _ = self.run_import()
