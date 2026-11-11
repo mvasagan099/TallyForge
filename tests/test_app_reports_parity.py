@@ -127,6 +127,22 @@ class ReportParityTests(unittest.TestCase):
         self.assertEqual({r['name']: r['amount'] for r in sheet['liabilities']}['Profit & Loss A/c'], -30.0)
         self.assertEqual(sheet['total_liabilities'], sheet['total_assets'])
 
+    def test_schedule_iii_classifies_sub_groups_and_balances(self):
+        self.db.add_ledger('Owner', 'Capital Account')
+        self.db.add_ledger('Rent', 'Indirect Expenses')
+        self.db.add_group('Retail Debtors', 'Sundry Debtors', is_revenue=False)
+        self.db.add_ledger('Shop', 'Retail Debtors')
+        self.db.add_ledger('Tax', 'Duties & Taxes')
+        self.journal('Cash', 'Owner', 1000)
+        self.journal('Rent', 'Cash', 40)
+        self.journal('Shop', 'Tax', 25)
+        sheet = self.db.get_schedule_iii_balance_sheet()
+        self.assertTrue(sheet['is_balanced'], sheet)
+        self.assertEqual(sheet['equity_and_liabilities']['shareholders_funds'], {'share_capital': 1000.0, 'reserves_and_surplus': -40.0, 'total': 960.0})
+        self.assertEqual(sheet['equity_and_liabilities']['current_liabilities']['other_current_liabilities'], 25.0)
+        self.assertEqual(sheet['assets']['current_assets']['trade_receivables'], 25.0)      # a sub-group of Sundry Debtors
+        self.assertEqual(sheet['assets']['current_assets']['cash_and_bank_balances'], 960.0)
+
     def test_outstanding_bills_are_classified_by_balance_side_like_tallyprime(self):
         self.db.add_ledger('Buyer', 'Sundry Debtors')
         self.db.add_ledger('Supplier', 'Sundry Creditors')

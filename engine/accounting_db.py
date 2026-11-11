@@ -6120,7 +6120,6 @@ class EnterpriseAccountingDB(ReliabilityMixin):
     # Schedule III (Division I) Financial Statements (Companies Act 2013)
     # -------------------------------------------------------------------------
     def get_schedule_iii_balance_sheet(self, as_of_date: Optional[str] = None) -> Dict[str, Any]:
-        tb = self.get_trial_balance()
         fin = self.get_financial_summary()
         net_profit = fin.get("net_profit", 0.0)
         closing_stock = fin.get("closing_stock", 0.0)
@@ -6139,38 +6138,53 @@ class EnterpriseAccountingDB(ReliabilityMixin):
         cash_bank = 0.0
         other_current_assets = 0.0
 
-        for row in tb:
-            grp = row.get("group_name", "")
-            net_bal = row.get("closing_credit", 0.0) - row.get("closing_debit", 0.0)
-            dr_bal = row.get("closing_debit", 0.0) - row.get("closing_credit", 0.0)
-
-            if grp == "Capital Account":
-                share_capital += net_bal
+        groups = {r["name"]: dict(r) for r in self.conn.execute("SELECT name, parent FROM account_group")}
+        known = {"Capital Account", "Reserves & Surplus", "Loans (Liability)", "Secured Loans", "Unsecured Loans", "Bank OD A/c",
+                 "Sundry Creditors", "Current Liabilities", "Duties & Taxes", "Provisions", "Fixed Assets", "Investments",
+                 "Stock-in-Hand", "Sundry Debtors", "Cash-in-Hand", "Bank Accounts", "Current Assets",
+                 "Loans & Advances (Asset)", "Deposits (Asset)"}
+        asset_roots = {"Fixed Assets", "Investments", "Current Assets", "Misc. Expenses (ASSET)"}
+        net_profit_ledgers = Decimal("0.00")
+        for l in self.get_ledgers():
+            bal, side = self.get_ledger_closing_balance(l["name"])
+            credit = float(bal if side == "Cr" else -bal)         # credit-positive
+            debit = -credit
+            # Resolve the group through its parents, so sub-groups and imported groups are classified too.
+            grp, seen = l["group_name"], set()
+            while grp not in known and grp in groups and groups[grp]["parent"] not in (None, "Primary") and grp not in seen:
+                seen.add(grp)
+                grp = groups[grp]["parent"]
+            root = self._root_group(groups, l["group_name"]) if l["group_name"] in groups else None
+            if root in self.PL_ROOTS:
+                continue
+            if root is None or root == "Primary (ungrouped ledgers)":
+                reserves_surplus += credit                         # a group-less ledger is the Profit & Loss A/c
+            elif grp == "Capital Account":
+                share_capital += credit
             elif grp == "Reserves & Surplus":
-                reserves_surplus += net_bal
+                reserves_surplus += credit
             elif grp in ("Loans (Liability)", "Secured Loans", "Unsecured Loans"):
-                long_term_borrowings += net_bal
+                long_term_borrowings += credit
             elif grp == "Bank OD A/c":
-                short_term_borrowings += net_bal
+                short_term_borrowings += credit
             elif grp == "Sundry Creditors":
-                trade_payables += net_bal
-            elif grp in ("Current Liabilities", "Duties & Taxes", "Provisions"):
-                other_current_liabilities += net_bal
+                trade_payables += credit
             elif grp == "Fixed Assets":
-                fixed_assets += dr_bal
+                fixed_assets += debit
             elif grp == "Investments":
-                non_current_investments += dr_bal
+                non_current_investments += debit
             elif grp == "Stock-in-Hand":
-                inventories += dr_bal
+                inventories += debit
             elif grp == "Sundry Debtors":
-                trade_receivables += dr_bal
+                trade_receivables += debit
             elif grp in ("Cash-in-Hand", "Bank Accounts"):
-                cash_bank += dr_bal
-            elif grp in ("Current Assets", "Loans & Advances (Asset)", "Deposits (Asset)"):
-                other_current_assets += dr_bal
+                cash_bank += debit
+            elif root in asset_roots:
+                other_current_assets += debit
+            else:                                                    # Current Liabilities, Suspense A/c, anything else
+                other_current_liabilities += credit
 
-        if inventories == 0.0 and closing_stock > 0:
-            inventories = float(closing_stock)
+        inventories += float(closing_stock)       # closing stock from the vouchers (negative if issued before received)
 
         total_shareholders_funds = round(share_capital + reserves_surplus, 2)
         total_non_current_liabilities = round(long_term_borrowings, 2)
