@@ -4,8 +4,8 @@ Design rules:
 * Source files are opened read-only and hashed before parsing; nothing is written to them.
 * All money is parsed and summed with Decimal. Amounts that are not plain decimal
   strings (for example foreign-currency expressions) are rejected, never guessed.
-* Tally sign convention: a negative AMOUNT is a debit, a positive AMOUNT is a credit.
-  ISDEEMEDPOSITIVE must agree with that sign or the voucher is rejected.
+* Tally sign convention: a negative AMOUNT is a debit, a positive AMOUNT is a credit. The
+  ISDEEMEDPOSITIVE flag is informational (it disagrees on real data, e.g. Round Off) and only counted.
 * Unbalanced vouchers are rejected and reported. No suspense balancing entries are invented.
 * Re-running is idempotent: records are keyed by Tally GUID. Unchanged records are skipped,
   changed ones are replaced, all inside one SQLite transaction.
@@ -22,12 +22,19 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-MAX_XML_BYTES = 64 * 1024 * 1024
-MAX_ELEMENTS = 5_000_000
+MAX_XML_BYTES = 160 * 1024 * 1024  # live monthly voucher responses reach ~72 MB
+MAX_ELEMENTS = 30_000_000
 PLAIN_AMOUNT = re.compile(r'^[+-]?\d+(?:\.\d+)?$')
 QTY = re.compile(r'^\s*([+-]?\d+(?:\.\d+)?)\s*(.*?)\s*$')
 CENT = Decimal('0.01')
 IMPORTER_VERSION = 1
+# Voucher kinds that do not post to ledgers in TallyPrime. Verified against a real company: Purchase Order
+# (its postings net exactly to the gap between our books and TallyPrime's Trial Balance). The rest follow
+# Tally's documented behaviour and are not verified on that data.
+NON_POSTING_KINDS = frozenset({'Purchase Order', 'Sales Order', 'Job Work In Order', 'Job Work Out Order', 'Memorandum',
+                               'Delivery Note', 'Receipt Note', 'Rejections In', 'Rejections Out', 'Material In',
+                               'Material Out', 'Stock Journal', 'Physical Stock', 'Attendance'})
+UNGROUPED = 'Primary (ungrouped ledgers)'
 
 ENTRY_TAGS = ('LEDGERENTRIES.LIST', 'ALLLEDGERENTRIES.LIST')
 INVENTORY_TAGS = ('ALLINVENTORYENTRIES.LIST', 'INVENTORYENTRIES.LIST')
@@ -128,7 +135,8 @@ def parse_export(raw, source_name='export.xml'):
     if not isinstance(raw, (bytes, bytearray)) or len(raw) > MAX_XML_BYTES:
         raise TallyImportError(f'{source_name}: invalid or oversized XML')
     text, fix = _sanitize(_decode(bytes(raw)))
-    out = {'companies': set(), 'groups': [], 'ledgers': [], 'currencies': [], 'vouchers': [], 'other': Counter()}
+    out = {'companies': set(), 'groups': [], 'ledgers': [], 'currencies': [], 'vouchers': [], 'voucher_types': [],
+           'other': Counter()}
     stack, elements = [], 0
     try:
         for event, node in ET.iterparse(io.StringIO(text), events=('start', 'end')):
@@ -141,7 +149,7 @@ def parse_export(raw, source_name='export.xml'):
             stack.pop()
             if node.tag == 'SVCURRENTCOMPANY' and fix(node.text).strip():
                 out['companies'].add(fix(node.text).strip())
-            if stack and stack[-1] == 'TALLYMESSAGE':
+            if stack and stack[-1] in ('TALLYMESSAGE', 'COLLECTION'):
                 handler = HANDLERS.get(node.tag)
                 if handler:
                     out[handler[0]].append(handler[1](node, fix, source_name))
@@ -192,16 +200,18 @@ def _signed_entry(entry, fix, where, ledger_tag='LEDGERNAME'):
     amount = _amount(fix(entry.findtext('AMOUNT')), f'{where} ledger {ledger!r}')
     if not ledger or amount is None:
         return None
+    # The sign of AMOUNT is authoritative (negative = debit). ISDEEMEDPOSITIVE describes the ledger's
+    # nature and legitimately disagrees with the sign on real data (e.g. Round Off), so it is only
+    # counted; the voucher balance check is the real safeguard.
     deemed = (entry.findtext('ISDEEMEDPOSITIVE') or '').strip().lower()
-    if amount != 0 and deemed in ('yes', 'no') and (deemed == 'yes') != (amount < 0):
-        raise TallyImportError(f'{where} ledger {ledger!r}: ISDEEMEDPOSITIVE={deemed} disagrees with amount sign {amount}')
+    flag_mismatch = amount != 0 and deemed in ('yes', 'no') and (deemed == 'yes') != (amount < 0)
     bills = []
     for bill in entry.findall('BILLALLOCATIONS.LIST'):
         bname = fix(bill.findtext('NAME')).strip()
         bamt = _amount(fix(bill.findtext('AMOUNT')), f'{where} bill {bname!r}')
         if bname and bamt is not None:
             bills.append({'name': bname, 'type': fix(bill.findtext('BILLTYPE')).strip() or 'New Ref', 'amount': bamt})
-    return {'ledger': ledger, 'amount': amount, 'bills': bills}
+    return {'ledger': ledger, 'amount': amount, 'bills': bills, 'flag_mismatch': bool(flag_mismatch)}
 
 
 def _voucher(node, fix, src):
@@ -215,7 +225,8 @@ def _voucher(node, fix, src):
          'party': _text(node, 'PARTYLEDGERNAME', fix),
          'cancelled': _yes(node.findtext('ISCANCELLED')), 'optional': _yes(node.findtext('ISOPTIONAL')),
          'deleted': _yes(node.findtext('ISDELETED')), 'source': src,
-         'entries': [], 'inventory': [], 'zero_entries': 0}
+         'entries': [], 'inventory': [], 'zero_entries': 0, 'deduplicated_allocations': 0}
+    sources = {}  # list tag -> entries, merged below
     if not guid:
         raise TallyImportError(f'{src}: voucher without GUID on {v["date"]}')
     for child in node:
@@ -226,7 +237,7 @@ def _voucher(node, fix, src):
             if e['amount'] == 0:
                 v['zero_entries'] += 1
                 continue
-            v['entries'].append(e)
+            sources.setdefault(child.tag, []).append(e)
         elif child.tag in INVENTORY_TAGS:
             item = fix(child.findtext('STOCKITEMNAME'))
             if not item:
@@ -246,31 +257,69 @@ def _voucher(node, fix, src):
                 if e['amount'] == 0:
                     v['zero_entries'] += 1
                     continue
-                v['entries'].append(e)
+                sources.setdefault('allocation', []).append(e)
+    # The same postings can be listed by several sources: a live collection fetch returns the complete
+    # ALLLEDGERENTRIES.LIST, the LEDGERENTRIES.LIST subset and the inventory allocations together, and the
+    # allocation can hold item-level pieces of an aggregate that the complete list shows as one line
+    # (observed on a real TallyPrime). File exports instead split postings across them. Try the possible
+    # readings in order of preference and use the first that balances; if none does the voucher is
+    # reported as unbalanced and rejected, never patched.
+    a = sources.get('ALLLEDGERENTRIES.LIST', [])
+    b = sources.get('LEDGERENTRIES.LIST', [])
+    c = sources.get('allocation', [])
+    union, best = [], {}
+    for entries in (a, b, c):
+        for key, n in Counter((e['ledger'], e['amount']) for e in entries).items():
+            best[key] = max(best.get(key, 0), n)
+    seen = Counter()
+    for e in a + b + c:
+        key = (e['ledger'], e['amount'])
+        if seen[key] < best[key]:
+            seen[key] += 1
+            union.append(e)
+    candidates = [x for x in (a, b + c, a + c, union) if x]
+    chosen = next((x for x in candidates if sum((e['amount'] for e in x), Decimal('0')) == 0), candidates[0] if candidates else [])
+    v['entries'] = list(chosen)
+    v['deduplicated_allocations'] = len(a) + len(b) + len(c) - len(chosen)
     return v
 
 
-HANDLERS = {'GROUP': ('groups', _group), 'LEDGER': ('ledgers', _ledger),
+def _voucher_type(node, fix, src):
+    return {'name': fix(node.get('NAME')), 'guid': _text(node, 'GUID', fix), 'parent': _text(node, 'PARENT', fix),
+            'deleted': _yes(node.findtext('ISDELETED'))}
+
+
+HANDLERS = {'GROUP': ('groups', _group), 'LEDGER': ('ledgers', _ledger), 'VOUCHERTYPE': ('voucher_types', _voucher_type),
             'CURRENCY': ('currencies', _currency), 'VOUCHER': ('vouchers', _voucher)}
 
 
 def voucher_fingerprint(v):
     """Stable content hash used for idempotent re-imports."""
-    payload = {k: v[k] for k in ('type', 'date', 'number', 'reference', 'narration', 'cancelled', 'optional')}
+    payload = {k: v.get(k) for k in ('type', 'date', 'number', 'reference', 'narration', 'cancelled', 'optional', 'non_posting')}
     payload['entries'] = [[e['ledger'], str(e['amount']), [[b['name'], b['type'], str(b['amount'])] for b in e['bills']]] for e in v['entries']]
     payload['inventory'] = [[i['item'], str(i['qty']), i['unit'], str(i['rate']), str(i['amount']), i['godown'], i['batch'], i['direction']] for i in v['inventory']]
     return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
 def load_bundle(paths):
-    """Read and merge several exports. Duplicate GUIDs across files must be identical."""
-    bundle = {'sources': [], 'companies': set(), 'groups': {}, 'ledgers': {}, 'currencies': {}, 'vouchers': {},
-              'duplicates': Counter(), 'deleted_skipped': Counter(), 'other': Counter()}
+    """Read and merge several exports from files. Duplicate GUIDs across files must be identical."""
+    items = []
     for path in paths:
         raw, digest = read_source(path)
-        parsed = parse_export(raw, Path(path).name)
-        bundle['sources'].append({'file': Path(path).name, 'path': str(Path(path).resolve()), 'sha256': digest,
-                                  'bytes': len(raw),
+        items.append((Path(path).name, str(Path(path).resolve()), raw, digest))
+    return bundle_from_raw(items)
+
+
+def bundle_from_raw(items):
+    """Merge exports given as (name, origin, raw_bytes, sha256) tuples (files or live responses)."""
+    bundle = {'sources': [], 'companies': set(), 'groups': {}, 'ledgers': {}, 'currencies': {}, 'vouchers': {},
+              'voucher_types': {}, 'duplicates': Counter(), 'deleted_skipped': Counter(), 'other': Counter()}
+    for name, origin, raw, digest in items:
+        parsed = parse_export(raw, name)
+        for vt in parsed['voucher_types']:
+            if vt['name'] and not vt['deleted']:
+                bundle['voucher_types'][vt['name']] = vt['parent'] or vt['name']
+        bundle['sources'].append({'file': name, 'path': origin, 'sha256': digest, 'bytes': len(raw),
                                   'counts': {k: len(parsed[k]) for k in ('groups', 'ledgers', 'currencies', 'vouchers')}})
         bundle['companies'].update(parsed['companies'])
         bundle['other'].update(parsed['other'])
@@ -282,8 +331,7 @@ def load_bundle(paths):
                 key = rec['guid'] or rec.get('name')
                 if key in bundle[kind]:
                     previous = bundle[kind][key]
-                    same = (voucher_fingerprint(previous) == voucher_fingerprint(rec)) if kind == 'vouchers' else \
-                        {k: v for k, v in previous.items() if k != 'source'} == {k: v for k, v in rec.items() if k != 'source'}
+                    same = (voucher_fingerprint(previous) == voucher_fingerprint(rec)) if kind == 'vouchers' else                         {k: v for k, v in previous.items() if k != 'source'} == {k: v for k, v in rec.items() if k != 'source'}
                     if not same:
                         raise TallyImportError(f'Conflicting duplicate {kind[:-1]} {key} across exports')
                     bundle['duplicates'][kind] += 1
@@ -292,6 +340,12 @@ def load_bundle(paths):
     if len(bundle['companies']) > 1:
         raise TallyImportError(f'Exports belong to different companies: {sorted(bundle["companies"])}')
     bundle['companies'] = sorted(bundle['companies'])
+    bundle['non_posting_types'] = Counter()
+    for v in bundle['vouchers'].values():
+        kind = bundle['voucher_types'].get(v['type'], v['type'])
+        v['non_posting'] = kind in NON_POSTING_KINDS
+        if v['non_posting']:
+            bundle['non_posting_types'][v['type']] += 1
     return bundle
 
 
@@ -303,10 +357,10 @@ def reference_figures(bundle):
     unbalanced, by_type = [], Counter()
     for v in bundle['vouchers'].values():
         total = sum((e['amount'] for e in v['entries']), Decimal('0'))
-        if total != 0 or not v['entries']:
+        if not v.get('non_posting') and (total != 0 or not v['entries']):
             unbalanced.append({'guid': v['guid'], 'date': v['date'], 'difference': str(total)})
             continue
-        if v['cancelled'] or v['optional']:
+        if v['cancelled'] or v['optional'] or v.get('non_posting'):
             by_type[v['type'] + ' (cancelled/optional)'] += 1
             continue
         by_type[v['type']] += 1
@@ -398,6 +452,10 @@ def import_bundle(db, bundle):
     ref = reference_figures(bundle)
     summary = Counter()
     skipped, warnings = [], []
+    summary['entries_flag_disagrees_with_sign'] = sum(
+        1 for v in bundle['vouchers'].values() for e in v['entries'] if e.get('flag_mismatch'))
+    if not summary['entries_flag_disagrees_with_sign']:
+        del summary['entries_flag_disagrees_with_sign']
     rejected = {u['guid'] for u in ref['unbalanced']}
     with conn:
         # Currencies (base currency only; the supplied exports have one, listed twice).
@@ -429,18 +487,20 @@ def import_bundle(db, bundle):
         # Ledgers
         posted = {e['ledger'] for v in bundle['vouchers'].values() for e in v['entries']}
         for led in bundle['ledgers'].values():
-            if not led['parent']:
-                if led['name'] in posted:
-                    raise TallyImportError(f'Ledger {led["name"]!r} has no parent group but carries postings')
-                skipped.append({'kind': 'ledger', 'name': led['name'],
-                                'reason': 'Primary-level ledger (no parent group); TallyForge ledgers require a group and this one has no postings in the exports'})
-                summary['ledgers_skipped'] += 1
-                continue
-            if not conn.execute('SELECT 1 FROM account_group WHERE name=?', (led['parent'],)).fetchone():
-                raise TallyImportError(f'Ledger {led["name"]!r} references unknown group {led["parent"]!r}')
+            parent = led['parent']
+            if not parent:
+                # Tally's built-in Primary-level ledgers (e.g. Profit & Loss A/c) have no group, but TallyForge
+                # ledgers require one. Keep them, in an explicit group, instead of dropping real postings.
+                parent = UNGROUPED
+                if not conn.execute('SELECT 1 FROM account_group WHERE name=?', (UNGROUPED,)).fetchone():
+                    conn.execute('INSERT INTO account_group(name,parent,is_revenue,affects_gross) VALUES(?,?,0,0)', (UNGROUPED, 'Primary'))
+                    summary['groups_created'] += 1
+                summary['ledgers_placed_in_ungrouped_group'] += 1
+            if not conn.execute('SELECT 1 FROM account_group WHERE name=?', (parent,)).fetchone():
+                raise TallyImportError(f'Ledger {led["name"]!r} references unknown group {parent!r}')
             opening = led['opening'] or Decimal('0')
             op_type = 'Dr' if opening < 0 else 'Cr' if opening > 0 else 'Dr'
-            values = dict(group_name=led['parent'], opening_balance=_q(abs(opening)), opening_balance_type=op_type,
+            values = dict(group_name=parent, opening_balance=_q(abs(opening)), opening_balance_type=op_type,
                           gstin=led['gstin'], state=led['state'], pan=led['pan'], maintain_bill_by_bill=int(led['billwise']))
             existing = conn.execute('SELECT id,' + ','.join(values) + ' FROM ledger WHERE name=?', (led['name'],)).fetchone()
             if existing:
@@ -485,7 +545,7 @@ def import_bundle(db, bundle):
             vid = conn.execute("""INSERT INTO voucher(voucher_type,voucher_number,date,narration,total_amount,currency_symbol,
                                   exchange_rate,is_optional,is_cancelled,reference_no,company_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                                (v['type'], v['number'], v['date'], v['narration'], _q(total),
-                                _base_symbol(conn), 1.0, int(v['optional']), int(v['cancelled']),
+                                _base_symbol(conn), 1.0, int(v['optional'] or v.get('non_posting', False)), int(v['cancelled']),
                                 v['reference'] or None, cid)).lastrowid
             for e in v['entries']:
                 conn.execute('INSERT INTO voucher_entry(voucher_id,ledger_name,entry_type,amount,narration,cost_centre_name) VALUES(?,?,?,?,?,?)',
@@ -504,7 +564,8 @@ def import_bundle(db, bundle):
 
         run_summary = {'counts': dict(summary), 'skipped': skipped, 'warnings': warnings,
                        'unbalanced_rejected': ref['unbalanced'], 'duplicates_across_files': dict(bundle['duplicates']),
-                       'deleted_records_skipped': dict(bundle['deleted_skipped']), 'ignored_record_types': dict(bundle['other'])}
+                       'deleted_records_skipped': dict(bundle['deleted_skipped']), 'ignored_record_types': dict(bundle['other']),
+                       'non_posting_vouchers_kept_out_of_balances': dict(bundle.get('non_posting_types', {}))}
         conn.execute('INSERT INTO tally_import_run(company_id,started_at,importer_version,tally_company,sources_json,summary_json) VALUES(?,?,?,?,?,?)',
                      (cid, datetime.datetime.now().isoformat(timespec='seconds'), IMPORTER_VERSION,
                       bundle['companies'][0] if bundle['companies'] else None,
@@ -561,7 +622,7 @@ def verify(db, bundle):
         rows = conn.execute('SELECT ledger_name,entry_type,amount FROM voucher_entry WHERE voucher_id=?', (vid,)).fetchall()
         dr = sum((Decimal(repr(r['amount'])).quantize(CENT) for r in rows if r['entry_type'] == 'Dr'), Decimal('0'))
         cr = sum((Decimal(repr(r['amount'])).quantize(CENT) for r in rows if r['entry_type'] == 'Cr'), Decimal('0'))
-        if dr != cr or dr == 0:
+        if (dr != cr or dr == 0) and not (v['is_cancelled'] or v['is_optional']):
             unbalanced += 1
         if v['is_cancelled'] or v['is_optional']:
             by_type[v['voucher_type'] + ' (cancelled/optional)'] += 1
@@ -632,9 +693,14 @@ def find_imported_company(data_root, tally_company):
 
 
 def import_company(data_root, source_paths, company_name=None):
-    """Create (first run) or re-sync (later runs) a numbered TallyForge company folder."""
+    """Create (first run) or re-sync a numbered TallyForge company folder from export files."""
+    return import_company_bundle(data_root, load_bundle(source_paths), company_name)
+
+
+def import_company_bundle(data_root, bundle, company_name=None, extra_verify=None):
+    """Same as import_company for an already-built bundle. extra_verify(db, bundle) may return
+    additional verification checks (e.g. against TallyPrime's own reports)."""
     from engine.accounting_db import EnterpriseAccountingDB
-    bundle = load_bundle(source_paths)
     tally_company = bundle['companies'][0] if bundle['companies'] else None
     if not tally_company and not company_name:
         raise TallyImportError('Company name not found in exports; pass company_name')
@@ -664,6 +730,11 @@ def import_company(data_root, source_paths, company_name=None):
         db.select_company(cid)
         summary = import_bundle(db, bundle)
         result = verify(db, bundle)
+        if extra_verify:
+            extra = extra_verify(db, bundle)
+            result['checks'] += extra['checks']
+            result['tally_reference'] = extra.get('reference')
+            result['ok'] = all(c['ok'] for c in result['checks'])
         db.checkpoint()
         return {'folder': str(folder), 'storage_key': f'{folder.name}:{cid}', 'created': created,
                 'tally_company': tally_company, 'sources': bundle['sources'], 'import': summary, 'verification': result}

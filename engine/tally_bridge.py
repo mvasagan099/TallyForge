@@ -59,16 +59,72 @@ class NoRedirect(request.HTTPRedirectHandler):
     def redirect_request(self,*args,**kwargs):raise ValueError('Redirects are not accepted from the Tally endpoint')
 
 
-def send_xml(endpoint,content):
+def assert_read_only(content):
+    """Refuse to transmit anything that is not a plain Export request.
+
+    Tally import/alter/delete requests use TALLYREQUEST=Import, IMPORTDATA/IMPORT bodies or
+    ACTION attributes (Create/Alter/Delete/Cancel). Collections must be ISMODIFY=No."""
+    try:root=ET.fromstring(content)
+    except ET.ParseError as exc:raise ValueError('Request is not well-formed XML') from exc
+    if root.tag!='ENVELOPE' or (root.findtext('HEADER/TALLYREQUEST') or '').strip()!='Export':
+        raise ValueError('Only TALLYREQUEST=Export requests may be sent to TallyPrime')
+    for node in root.iter():
+        if node.tag.upper() in ('IMPORTDATA','IMPORT','TALLYMESSAGE','VOUCHER','LEDGER','GROUP'):
+            raise ValueError('Request carries data objects; the bridge never sends import, alter or delete requests')
+        if any(k.upper()=='ACTION' for k in node.attrib):raise ValueError('ACTION attributes are not allowed')
+        if node.tag.upper()=='COLLECTION' and node.get('ISMODIFY','No')!='No':raise ValueError('Collections must be ISMODIFY=No')
+        if node.tag.upper()=='NATIVEMETHOD' and '*' in (node.text or ''):raise ValueError('Wildcard method fetches are refused; they can overload TallyPrime')
+        if node.tag.upper()=='FETCH' and '*' in (node.text or ''):raise ValueError('Wildcard fetches are refused; they can overload TallyPrime')
+
+
+def send_xml(endpoint,content,max_bytes=MAX_RESPONSE,timeout=8):
+    assert_read_only(content)
     req=request.Request(endpoint_url(endpoint),data=content,headers={'Content-Type':'text/xml; charset=utf-8','Accept':'application/xml'},method='POST')
     opener=request.build_opener(request.ProxyHandler({}),NoRedirect())
     try:
-        with opener.open(req,timeout=8) as response:
-            raw=response.read(MAX_RESPONSE+1)
+        with opener.open(req,timeout=timeout) as response:
+            raw=response.read(max_bytes+1)
     except (error.URLError,TimeoutError,OSError) as exc:
         raise ValueError('Cannot reach the Tally server. Start TallyPrime, load the company, enable Server/Both mode and check its configured port (commonly 9000).') from exc
-    if len(raw)>MAX_RESPONSE:raise ValueError('Tally response exceeds 32 MB; narrow the voucher date range')
+    if len(raw)>max_bytes:raise ValueError(f'Tally response exceeds {max_bytes//(1024*1024)} MB; narrow the request')
     return raw
+
+
+def _envelope(kind,report_id,company,variables,tdl=None):
+    env=ET.Element('ENVELOPE');header=ET.SubElement(env,'HEADER')
+    for name,value in (('VERSION','1'),('TALLYREQUEST','Export'),('TYPE',kind),('ID',report_id)):ET.SubElement(header,name).text=value
+    desc=ET.SubElement(ET.SubElement(env,'BODY'),'DESC');sv=ET.SubElement(desc,'STATICVARIABLES')
+    ET.SubElement(sv,'SVEXPORTFORMAT').text='$$SysName:XML'
+    ET.SubElement(sv,'SVCURRENTCOMPANY').text=company
+    for key,value in variables.items():
+        node=ET.SubElement(sv,key)
+        if key.endswith('DATE'):node.set('TYPE','Date')
+        node.text=value
+    if tdl is not None:desc.append(tdl)
+    return ET.tostring(env,encoding='utf-8',xml_declaration=True)
+
+
+def _yyyymmdd(value):
+    return datetime.date.fromisoformat(value).strftime('%Y%m%d')
+
+
+def report_request(report_id,company,variables=None):
+    """Read-only request for a built-in Tally report, e.g. 'List of Accounts' or 'Trial Balance'."""
+    if not company or len(company)>240:raise ValueError('Company name is required')
+    body=_envelope('Data',report_id,company,variables or {})
+    assert_read_only(body);return body
+
+
+def collection_request(name,object_type,methods,company,from_date='',to_date='',fetch=()):
+    """Read-only collection request with explicitly named methods (no wildcards)."""
+    if not company or len(company)>240:raise ValueError('Company name is required')
+    variables={}
+    if from_date:variables.update(SVFROMDATE=_yyyymmdd(from_date),SVTODATE=_yyyymmdd(to_date))
+    tdl=ET.Element('TDL');coll=ET.SubElement(ET.SubElement(tdl,'TDLMESSAGE'),'COLLECTION',{'NAME':name,'ISMODIFY':'No'})
+    ET.SubElement(coll,'TYPE').text=object_type
+    for method in methods:ET.SubElement(coll,'NATIVEMETHOD').text=method
+    for item in fetch:ET.SubElement(coll,'FETCH').text=item
+    body=_envelope('Collection',name,company,variables,tdl);assert_read_only(body);return body
 
 
 def parse_response(raw,kind,limit=500,offset=0):

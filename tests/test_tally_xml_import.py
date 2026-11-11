@@ -141,8 +141,8 @@ class TallyXmlImportTests(unittest.TestCase):
         self.assertEqual(conn.execute("SELECT opening_balance, opening_balance_type FROM ledger WHERE name='Main Bank'").fetchone()[:], (200000.0, 'Dr'))
         self.assertEqual(conn.execute("SELECT opening_balance_type FROM ledger WHERE name='Owner Capital'").fetchone()[0], 'Cr')
         unknown = conn.execute("SELECT COUNT(*) FROM tally_import_record WHERE kind='ledger' AND opening_known=0").fetchone()[0]
-        self.assertEqual(unknown, 3)
-        self.assertEqual(conn.execute("SELECT COUNT(*) FROM ledger WHERE name LIKE 'Profit%'").fetchone()[0], 0)
+        self.assertEqual(unknown, 4)  # 3 book ledgers + the group-less P&L ledger
+        self.assertEqual(conn.execute("SELECT group_name FROM ledger WHERE name LIKE 'Profit%'").fetchone()[0], 'Primary (ungrouped ledgers)')
         self.assertEqual(conn.execute("SELECT parent, is_revenue FROM account_group WHERE name='Office Costs'").fetchone()[:], ('Indirect Expenses', 1))
         self.assertEqual(conn.execute('SELECT ref_name, amount, direction FROM bill_allocation').fetchone()[:], ('INV-1', 100.0, 'Dr'))
         self.assertEqual(conn.execute('SELECT stock_item_name, qty, direction FROM voucher_inventory').fetchone()[:], ('Rice', 4.0, 'Out'))
@@ -191,6 +191,34 @@ class TallyXmlImportTests(unittest.TestCase):
         self.assertEqual(conn.execute("SELECT COUNT(*) FROM ledger WHERE name LIKE '%uspense%'").fetchone()[0], 0)
         self.assertEqual(conn.execute("SELECT COUNT(*) FROM voucher WHERE voucher_number='J/2'").fetchone()[0], 0)
 
+    def test_postings_to_a_groupless_ledger_are_kept(self):
+        rows = day_book() + [voucher(9, 'Journal', '20260412', [entry('Profit &amp; Loss A/c', '-5.00'), entry('Cash', '5.00')], 'J/9')]
+        write(self.src, 'DayBook.xml', envelope(rows))
+        report = import_company(self.data, [self.master, self.daybook])
+        self.assertTrue(report['verification']['ok'], report['verification']['checks'])
+        conn = self.db(report)
+        self.assertEqual(conn.execute("SELECT entry_type, amount FROM voucher_entry WHERE ledger_name='Profit & Loss A/c'").fetchone()[:], ('Dr', 5.0))
+
+    def test_non_posting_vouchers_are_kept_but_excluded_from_balances(self):
+        def vtype(name, parent, n):
+            return f'<VOUCHERTYPE NAME="{name}"><GUID>{GUID.format(900 + n)}</GUID><PARENT>{parent}</PARENT></VOUCHERTYPE>'
+        masters = MASTERS + [vtype('Purchase Order', 'Purchase Order', 1), vtype('Import Order', 'Purchase Order', 2),
+                             vtype('Sales', 'Sales', 3)]
+        order = voucher(8, 'Purchase Order', '20260412', [entry('Rent', '-777.00'), entry('Cash', '777.00')], 'PO/1')
+        custom = voucher(9, 'Import Order', '20260413', [entry('Rent', '-5.00'), entry('Cash', '5.00')], 'IO/1')
+        stock = voucher(10, 'Stock Journal', '20260414', [], 'SJ/1')
+        write(self.src, 'Master.xml', envelope(masters))
+        write(self.src, 'DayBook.xml', envelope(day_book() + [order, custom, stock]))
+        report = import_company(self.data, [self.master, self.daybook])
+        self.assertTrue(report['verification']['ok'], report['verification']['checks'])
+        self.assertEqual(report['import']['counts'].get('vouchers_rejected_unbalanced', 0), 0)
+        self.assertEqual(report['import']['non_posting_vouchers_kept_out_of_balances'],
+                         {'Purchase Order': 1, 'Import Order': 1, 'Stock Journal': 1})
+        conn = self.db(report)
+        self.assertEqual(conn.execute("SELECT COUNT(*) FROM voucher WHERE voucher_type IN ('Purchase Order','Import Order','Stock Journal') AND is_optional=1").fetchone()[0], 3)
+        # Rent is still only the 1,200.25 posted by the Payment voucher.
+        self.assertEqual(conn.execute("SELECT closing FROM (SELECT SUM(CASE entry_type WHEN 'Dr' THEN amount ELSE -amount END) closing FROM voucher_entry e JOIN voucher v ON v.id=e.voucher_id WHERE e.ledger_name='Rent' AND v.is_optional=0)").fetchone()[0], 1200.25)
+
     def test_foreign_currency_amount_rejected_and_rolled_back(self):
         rows = day_book() + [voucher(9, 'Receipt', '20260410', [entry('Cash', '-$10 @ &#8377; 80/$ = -&#8377; 800', 'Yes'), entry('Sales', '800')])]
         write(self.src, 'DayBook.xml', envelope(rows))
@@ -198,11 +226,21 @@ class TallyXmlImportTests(unittest.TestCase):
             import_company(self.data, [self.master, self.daybook])
         self.assertEqual(list(self.data.iterdir()), [])
 
-    def test_sign_flag_disagreement_rejected(self):
-        rows = [voucher(9, 'Journal', '20260410', [entry('Cash', '-10.00', deemed='No'), entry('Main Bank', '10.00')])]
+    def test_sign_flag_disagreement_is_counted_but_amount_sign_wins(self):
+        # Real TallyPrime data: Round Off with ISDEEMEDPOSITIVE=No and a negative (debit) amount.
+        rows = [voucher(9, 'Journal', '20260410', [entry('Cash', '-10.00', deemed='No'), entry('Main Bank', '10.00')], 'J/9')]
         write(self.src, 'DayBook.xml', envelope(rows))
-        with self.assertRaisesRegex(TallyImportError, 'ISDEEMEDPOSITIVE'):
-            import_company(self.data, [self.master, self.daybook])
+        report = import_company(self.data, [self.master, self.daybook])
+        self.assertEqual(report['import']['counts']['entries_flag_disagrees_with_sign'], 1)
+        self.assertTrue(report['verification']['ok'])
+        row = self.db(report).execute("SELECT entry_type FROM voucher_entry e JOIN ledger l ON l.name=e.ledger_name WHERE l.name='Cash'").fetchone()
+        self.assertEqual(row[0], 'Dr')
+
+    def test_flag_disagreement_cannot_hide_an_unbalanced_voucher(self):
+        rows = [voucher(9, 'Journal', '20260410', [entry('Cash', '-10.00', deemed='No'), entry('Main Bank', '9.99')], 'J/9')]
+        write(self.src, 'DayBook.xml', envelope(rows))
+        report = import_company(self.data, [self.master, self.daybook])
+        self.assertEqual(report['import']['counts']['vouchers_rejected_unbalanced'], 1)
 
     def test_conflicting_duplicates_across_files_rejected(self):
         other = write(self.src, 'Transactions.xml', envelope(
