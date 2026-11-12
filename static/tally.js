@@ -1081,6 +1081,17 @@ function populateVoucherDropdowns() {
     drSelect.innerHTML = "";
     crSelect.innerHTML = "";
 
+    // Godowns come from the company's own master (the page used to offer fixed demo godowns that most companies do not have).
+    const godownSelect = document.getElementById("vch-godown");
+    if (godownSelect) {
+        const keep = godownSelect.value;
+        const names = (state.godowns || []).map(g => g.name).filter(Boolean);
+        if (!names.length) names.push("Main Location");
+        godownSelect.innerHTML = "";
+        names.forEach(n => { const o = document.createElement("option"); o.value = o.textContent = n; godownSelect.appendChild(o); });
+        godownSelect.value = names.includes(keep) ? keep : names[0];
+    }
+
     state.ledgers.forEach((l) => {
         const opt1 = document.createElement("option");
         opt1.value = l.name;

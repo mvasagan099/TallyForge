@@ -51,7 +51,9 @@ TallyPrime running; both are on the same screen.
 Voucher numbers continue your series automatically (for example 5490 becomes 5491) and restart each April. The entry
 screen shows the number the voucher will get (for example "No. 5491"). For a company imported from TallyPrime, Payment offers
 only cash and bank ledgers to credit, Receipt only cash and bank ledgers to debit, and Contra only cash and bank ledgers.
-Ledgers, stock items and godowns must exist before a voucher can use them; create them first.
+Ledgers, stock items and godowns must exist before a voucher can use them; create them first. The godown list on the
+entry screen is your company's own. A sales invoice with items gets its bill reference automatically, and its print carries the
+buyer's GSTIN and state from that party's latest earlier invoice.
 
 ## Export
 **Import / Export Tally data** also writes the company as Tally XML. This file has been checked by re-importing it

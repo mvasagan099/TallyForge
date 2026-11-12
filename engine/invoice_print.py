@@ -64,6 +64,7 @@ def build_print(db, voucher_id):
         details = _json(row[0]) if row else {}
     except Exception:                                   # a company that was never imported has no such table
         details = {}
+    carried = {}
     groups = {r["name"]: dict(r) for r in conn.execute("SELECT name, parent FROM account_group")}
     ledgers = {r["name"]: dict(r) for r in conn.execute(
         "SELECT name, group_name, gstin, state, address, pincode, pan, udf_data FROM ledger")}
@@ -76,6 +77,20 @@ def build_print(db, voucher_id):
     party_name = party_entry["ledger_name"] if party_entry else None
     party = ledgers.get(party_name, {})
     party_extra = _json(party.get("udf_data"))
+    if party_name and not details.get("gstin"):
+        # A voucher entered here has no stored buyer details, and TallyPrime keeps a buyer's GSTIN on each voucher rather than on
+        # the ledger. Carry the GSTIN, state and place of supply from this party's latest earlier invoice.
+        try:
+            row = conn.execute(
+                "SELECT i.details_json FROM voucher_invoice i JOIN voucher_entry e ON e.voucher_id = i.voucher_id "
+                "WHERE e.ledger_name = ? AND i.voucher_id != ? AND i.details_json LIKE '%\"gstin\"%' ORDER BY i.voucher_id DESC LIMIT 1",
+                (party_name, voucher_id)).fetchone()
+        except Exception:
+            row = None
+        if row:
+            earlier = _json(row[0])
+            carried = {k: earlier[k] for k in ("gstin", "state", "place_of_supply", "party_mailing_name") if earlier.get(k)}
+            details = {**carried, **details}
     company = db.get_company()
 
     is_invoice = voucher["voucher_type"] in INVOICE_TYPES and bool(voucher["inventory"])
