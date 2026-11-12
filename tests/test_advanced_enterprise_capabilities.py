@@ -552,6 +552,18 @@ class TestAdvancedEnterpriseCapabilities(unittest.TestCase):
           </LEDGER>
         </TALLYMESSAGE>
         <TALLYMESSAGE>
+          <LEDGER NAME="Owner Capital" ACTION="Create"><NAME>Owner Capital</NAME><PARENT>Capital Account</PARENT><OPENINGBALANCE>75000.00</OPENINGBALANCE></LEDGER>
+        </TALLYMESSAGE>
+        <TALLYMESSAGE>
+          <LEDGER NAME="Sales Account" ACTION="Create"><NAME>Sales Account</NAME><PARENT>Sales Accounts</PARENT></LEDGER>
+        </TALLYMESSAGE>
+        <TALLYMESSAGE>
+          <LEDGER NAME="Output CGST" ACTION="Create"><NAME>Output CGST</NAME><PARENT>Duties &amp; Taxes</PARENT></LEDGER>
+        </TALLYMESSAGE>
+        <TALLYMESSAGE>
+          <LEDGER NAME="Output SGST" ACTION="Create"><NAME>Output SGST</NAME><PARENT>Duties &amp; Taxes</PARENT></LEDGER>
+        </TALLYMESSAGE>
+        <TALLYMESSAGE>
           <STOCKITEM NAME="UltraFast NVMe SSD 1TB" ACTION="Create">
             <NAME>UltraFast NVMe SSD 1TB</NAME>
             <BASEUNITS>Pcs</BASEUNITS>

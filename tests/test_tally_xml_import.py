@@ -197,6 +197,19 @@ class TallyXmlImportTests(unittest.TestCase):
         self.assertEqual(json.loads(ledger_row[1]), {'country': 'India', 'mailing': 'Acme Buyers Pvt Ltd'})
         self.assertEqual(tuple(conn.execute('SELECT gstin, state, state_code FROM company').fetchone()), ('33AAAAA0000A1Z5', 'Tamil Nadu', '33'))
 
+    def test_a_voucher_without_a_guid_is_keyed_by_its_content_and_reimports_unchanged(self):
+        import re
+        bare = re.sub(r'<GUID>[^<]*</GUID>', '', voucher(50, 'Journal', '20260420', [entry('Rent', '-3.00'), entry('Cash', '3.00')], 'J/50'))
+        no_guid = write(self.src, 'NoGuid.xml', envelope([bare]))
+        first = import_company(self.data, [self.master, no_guid])
+        self.assertEqual(first['import']['counts']['vouchers_created'], 1)
+        count = lambda: self.db(first).execute("SELECT COUNT(*) FROM voucher WHERE voucher_number='J/50'").fetchone()[0]
+        self.assertEqual(count(), 1)
+        again = import_company(self.data, [self.master, no_guid])
+        self.assertEqual(again['import']['counts'].get('vouchers_unchanged'), 1)
+        self.assertNotIn('vouchers_created', again['import']['counts'])
+        self.assertEqual(count(), 1)
+
     def test_changed_voucher_is_replaced_not_duplicated(self):
         first = import_company(self.data, [self.master, self.daybook])
         changed = list(day_book())

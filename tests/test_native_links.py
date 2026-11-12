@@ -10,6 +10,14 @@ from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from engine.native_links import read_link_matches
 
+def _symlink_or_skip(testcase, link, target, **kw):
+    """Create a symlink, or skip the test where the OS does not allow it (Windows needs Developer Mode or admin)."""
+    try:
+        link.symlink_to(target, **kw)
+    except OSError as exc:
+        testcase.skipTest(f"symlinks not permitted here: {exc.strerror}")
+
+
 
 def _crc(data, seed):
     crc = seed
@@ -153,7 +161,7 @@ class NativeLinkTests(unittest.TestCase):
         with self.assertRaises(ValueError):read_link_matches(self.root,'native:../100124',self.guid)
         path=self.folder/'LinkMgr.1800';raw=path.read_bytes();path.write_bytes(raw[:-1])
         with self.assertRaisesRegex(ValueError,'aligned'):read_link_matches(self.root,'native:100124',self.guid)
-        path.unlink();path.symlink_to(self.folder/'Manager.1800')
+        path.unlink();_symlink_or_skip(self,path,self.folder/'Manager.1800')
         with self.assertRaises(ValueError):read_link_matches(self.root,'native:100124',self.guid)
 
 

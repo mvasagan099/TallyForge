@@ -96,7 +96,10 @@ class TestIndependentFinancialReconciliation(unittest.TestCase):
         )
 
         fin = self.db.get_financial_summary()
-        expected_gross_profit = (350000.0 - 200000.0) + initial_stock
+        # Gross profit = sales + closing stock - opening stock - purchases (TallyPrime's cost of sales). Nothing moved
+        # stock here, so closing equals opening and only sales less purchases remains.
+        opening_stock = sum(s["opening_value"] for s in self.db.get_stock_items())
+        expected_gross_profit = (350000.0 - 200000.0) + initial_stock - opening_stock
         expected_net_profit = expected_gross_profit - 30000.0
 
         self.assertEqual(fin["gross_profit"], expected_gross_profit)

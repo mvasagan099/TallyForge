@@ -11,6 +11,14 @@ from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from engine.native_directory import read_directory,validate_directory
 
+def _symlink_or_skip(testcase, link, target, **kw):
+    """Create a symlink, or skip the test where the OS does not allow it (Windows needs Developer Mode or admin)."""
+    try:
+        link.symlink_to(target, **kw)
+    except OSError as exc:
+        testcase.skipTest(f"symlinks not permitted here: {exc.strerror}")
+
+
 
 def _crc(data,seed):
     crc=seed
@@ -117,7 +125,7 @@ class NativeDirectoryTests(unittest.TestCase):
         with patch.object(native_directory,'checksum',side_effect=changing):
             with self.assertRaisesRegex(ValueError,'changed'):read_directory(self.root,'native:100124')
         with self.assertRaises(ValueError):read_directory(self.root,'native:../100124')
-        path=self.folder/'TranMgr.1800';path.unlink();path.symlink_to(self.folder/'Manager.1800')
+        path=self.folder/'TranMgr.1800';path.unlink();_symlink_or_skip(self,path,self.folder/'Manager.1800')
         with self.assertRaises(ValueError):read_directory(self.root,'native:100124')
 
 

@@ -123,7 +123,7 @@ class TestOfflineIsolation(unittest.TestCase):
         ]
 
         external_patterns = [
-            r"https?://(?!127\.0\.0\.1|localhost)",
+            r"https?://(?!127\.0\.0\.1|localhost|192\.168\.|10\.\d|172\.(?:1[6-9]|2\d|3[01])\.)",     # private-network hints (a LAN TallyPrime address placeholder) are not remote assets
             r"//cdn\.",
             r"fonts\.googleapis\.com",
             r"fonts\.gstatic\.com",

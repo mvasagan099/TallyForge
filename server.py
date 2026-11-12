@@ -1915,7 +1915,13 @@ class TallyRequestHandler(BaseHTTPRequestHandler):
                 return self.send_json(403, {"error": "Only a local Admin can import company data"})
             from engine import tally_exchange
             try:
-                res = tally_exchange.import_xml_text(company_store, xml_content, data.get("company_name") or None)
+                name = data.get("company_name") or None
+                if not name:                                  # no name in the request or the file: use the active company's
+                    try:
+                        name = db.get_company().get("name") or None
+                    except Exception:
+                        name = None
+                res = tally_exchange.import_xml_text(company_store, xml_content, name)
             except Exception as exc:
                 return self.send_json(400, {"success": False, "error": str(exc)})
             return self.send_json(200 if res.get("success") else 400, res)

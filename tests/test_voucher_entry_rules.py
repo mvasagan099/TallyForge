@@ -217,6 +217,27 @@ class EntryRuleTests(unittest.TestCase):
         self.assertTrue(summary['Shed']['in_master'])
         self.assertEqual(sum(g['total_qty'] for g in summary.values()), self.db.get_stock_item('Toor')['closing_qty'])
 
+    # bank statement import -----------------------------------------------------------------------
+    def test_statement_credit_lines_reconcile_even_though_their_debit_column_says_zero(self):
+        receipt = self.db.add_voucher('Receipt', '2026-05-10', 'x', [dr('Bank', 500), cr('Buyer', 500)])
+        payment = self.db.add_voucher('Payment', '2026-05-12', 'x', [dr('Rent', 300), cr('Bank', 300)])
+        csv = ("Date,Description,Debit,Credit\n"
+               "2026-05-10,Customer receipt,0.0,500.00\n"              # a credit line: its Debit column is 0.0
+               "2026-05-12,Rent paid,300.00,0.0\n")
+        result = self.db.auto_reconcile_statement_csv('Bank', csv)
+        self.assertEqual(result['reconciled_count'], 2)
+        status = {r[0]: r[1] for r in self.db.conn.execute('SELECT voucher_id, status FROM bank_reconciliation')}
+        self.assertEqual((status[receipt], status[payment]), ('Reconciled', 'Reconciled'))
+
+    def test_gst_registration_numbering_still_works_when_a_series_exists(self):
+        self.db.add_gst_registration if hasattr(self.db, 'add_gst_registration') else None
+        self.db.add_voucher('Sales', '2026-05-01', 'x', [dr('Buyer', 10), cr('Sales', 10)], voucher_number='INV-7')
+        reg = self.db.conn.execute('INSERT INTO gst_registration(company_id,name,gstin,state_code) VALUES(?,?,?,?)',
+                                   (self.db.active_company_id, 'Main', '29AABCA9999Z1Z8', '29')).lastrowid
+        self.db.conn.commit()
+        vid = self.db.add_voucher('Sales', '2026-05-02', 'x', [dr('Buyer', 10), cr('Sales', 10)], gst_registration_id=reg)
+        self.assertEqual(self.number(vid), f'R{reg}-S-0001')          # registration-scoped numbering is its own series
+
 
 if __name__ == '__main__':
     unittest.main()

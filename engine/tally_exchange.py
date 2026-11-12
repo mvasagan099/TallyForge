@@ -21,6 +21,7 @@ _jobs = {}
 _order = []
 MAX_JOBS = 20
 MAX_PASTED_BYTES = 64 * 1024 * 1024
+DEFAULT_COMPANY_NAME = 'Imported Tally Data'
 
 
 def _require_data_folder(company_store):
@@ -129,7 +130,13 @@ def import_xml_text(company_store, text, company_name=None):
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / 'Master.xml'
         path.write_bytes(text.encode('utf-8'))
-        report = import_company(root, [path], company_name)
+        try:
+            report = import_company(root, [path], company_name)
+        except TallyImportError as exc:
+            # Pasted XML from other tools often names no company: import it under a plain default name instead of refusing.
+            if company_name or 'pass company_name' not in str(exc):
+                raise
+            report = import_company(root, [path], DEFAULT_COMPANY_NAME)
     c = report['import']['counts']
     return {'success': report['verification']['ok'], 'storage_key': report['storage_key'], 'summary': summarize(report),
             'imported_groups': c.get('groups_created', 0) + c.get('groups_updated', 0) + c.get('groups_unchanged', 0),

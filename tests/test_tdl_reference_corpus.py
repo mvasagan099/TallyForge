@@ -12,7 +12,7 @@ from engine.tdl_parser import TDLParser, TDLSymbolTable
 from engine.accounting_db import EnterpriseAccountingDB
 from engine.runtime import TDLRuntime
 
-CORPUS_DIR = os.path.abspath("tests/tdl_corpus")
+CORPUS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tdl_corpus")      # independent of the working folder
 
 class TestTDLReferenceCorpus(unittest.TestCase):
     @classmethod
@@ -20,7 +20,7 @@ class TestTDLReferenceCorpus(unittest.TestCase):
         cls.symbols = TDLSymbolTable()
         cls.parser = TDLParser(cls.symbols)
         # Parse standard base definition first
-        base_path = os.path.abspath("definitions/base.tdl")
+        base_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "definitions", "base.tdl")      # independent of the working folder
         with open(base_path, "r", encoding="utf-8") as f:
             cls.parser.parse(f.read())
 
