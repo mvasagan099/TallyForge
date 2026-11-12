@@ -603,7 +603,7 @@ async function openVoucherForViewOrAlter(voucherId) {
             return;
         }
 
-        openVoucherEntry(vch.voucher_type);
+        openVoucherEntry(vch.voucher_type, true);
         const idInput = document.getElementById("vch-id");
         if (idInput) idInput.value = vch.id;
         const registration = document.getElementById('vch-gst-registration');
@@ -663,7 +663,7 @@ async function openVoucherForViewOrAlter(voucherId) {
 state.voucherMode = "standard";
 state.multilineEntries = [];
 
-function openVoucherEntry(type) {
+function openVoucherEntry(type, standardOnly) {
     if (_dashboardLoadTimeout) {
         clearTimeout(_dashboardLoadTimeout);
         _dashboardLoadTimeout = null;
@@ -719,6 +719,13 @@ function openVoucherEntry(type) {
     refreshVoucherNumberBadge();
     const dateInput = document.getElementById("vch-date");
     if (dateInput) dateInput.onchange = refreshVoucherNumberBadge;
+    // Sales, Purchase and the two notes are entered as invoices (several item lines, charges, GST); altering keeps the old screen.
+    const toggleBtn2 = document.getElementById("vch-mode-toggle-btn");
+    if (!standardOnly && INVOICE_TYPES.includes(state.voucherType)) openInvoiceMode(state.voucherType);
+    else {
+        document.getElementById("vch-invoice-mode").style.display = "none";
+        if (toggleBtn2) toggleBtn2.style.display = "";
+    }
 }
 
 // Shows the number the voucher will get when saved (the next in the series), like TallyPrime's "No." field.
@@ -1068,6 +1075,18 @@ function onVoucherTypeChanged(newType) {
     updateVchLedgerBalances();
     applyVoucherTypeLedgerFilter();
     refreshVoucherNumberBadge();
+    const idInput = document.getElementById("vch-id");
+    if (!(idInput && idInput.value)) {            // a new voucher: switch between the invoice screen and the plain one with the type
+        const invoiceMode = document.getElementById("vch-invoice-mode");
+        const toggle = document.getElementById("vch-mode-toggle-btn");
+        if (INVOICE_TYPES.includes(newType)) openInvoiceMode(newType);
+        else if (invoiceMode && invoiceMode.style.display !== "none") {
+            invoiceMode.style.display = "none";
+            document.getElementById("vch-standard-mode").style.display = "block";
+            state.voucherMode = "standard";
+            if (toggle) toggle.style.display = "";
+        }
+    }
 }
 
 function populateVoucherDropdowns() {
@@ -1145,6 +1164,7 @@ function updateVchLedgerBalances() {
 }
 
 async function saveVoucher() {
+    if (state.voucherMode === "invoice") { await invoiceSave(); return; }
     let payload = {};
     const date = document.getElementById("vch-date").value;
     const currency = document.getElementById("vch-currency").value;
@@ -4476,3 +4496,162 @@ function handleCommandPaletteKey(e) {
     }
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// Sales / purchase invoice entry (invoice mode of the voucher screen): several item lines, extra ledgers, GST, bill reference.
+// Every figure comes from the server's preview, so what you see is what saving posts.
+// ---------------------------------------------------------------------------------------------------------------
+const INVOICE_TYPES = ["Sales", "Purchase", "Credit Note", "Debit Note"];
+let invoiceTimer = null;
+
+function invoiceIsSalesSide(type) { return type === "Sales" || type === "Credit Note"; }
+
+function invoiceFill(select, names, keep) {
+    select.innerHTML = "";
+    names.forEach(n => { const o = document.createElement("option"); o.value = o.textContent = n; select.appendChild(o); });
+    if (keep && names.includes(keep)) select.value = keep;
+}
+
+function openInvoiceMode(type) {
+    state.voucherMode = "invoice";
+    const salesSide = invoiceIsSalesSide(type);
+    const partyGroups = salesSide ? /Sundry Debtors|Cash-in-Hand|Bank/ : /Sundry Creditors|Cash-in-Hand|Bank/;
+    const bookGroups = salesSide ? /Sales/ : /Purchase/;
+    invoiceFill(document.getElementById("inv-party"), state.ledgers.filter(l => partyGroups.test(l.group_name || "")).map(l => l.name));
+    invoiceFill(document.getElementById("inv-book"), state.ledgers.filter(l => bookGroups.test(l.group_name || "")).map(l => l.name));
+    document.getElementById("inv-book-label").textContent = salesSide ? "Sales ledger" : "Purchase ledger";
+    document.getElementById("inv-ref-label").firstChild.textContent = salesSide ? "Reference no. " : "Supplier invoice no. ";
+    ["inv-reference", "inv-order", "inv-pos", "inv-due", "inv-shipped", "inv-destination", "inv-vehicle", "inv-consignee", "inv-narration"].forEach(id => { document.getElementById(id).value = ""; });
+    document.getElementById("inv-gst").checked = false;
+    document.getElementById("inv-round").checked = false;
+    state.invoiceRows = [{item: "", godown: "", qty: "", rate: "", disc: ""}];
+    state.invoiceCharges = [];
+    document.getElementById("vch-standard-mode").style.display = "none";
+    document.getElementById("vch-multiline-mode").style.display = "none";
+    document.getElementById("vch-invoice-mode").style.display = "flex";
+    const toggle = document.getElementById("vch-mode-toggle-btn");
+    if (toggle) toggle.style.display = "none";
+    invoiceRender();
+    invoicePartyChanged();
+}
+
+function invoicePartyChanged() {
+    const name = document.getElementById("inv-party").value;
+    const ledger = state.ledgers.find(l => l.name === name) || {};
+    const bits = [ledger.group_name, ledger.state ? "State: " + ledger.state : "", ledger.gstin ? "GSTIN: " + ledger.gstin : "",
+                  ledger.credit_period_days ? "Credit period: " + ledger.credit_period_days + " days" : ""].filter(Boolean);
+    document.getElementById("inv-party-info").textContent = bits.join(" | ");
+    invoiceRecalcSoon();
+}
+
+function invoiceAddRow() { state.invoiceRows.push({item: "", godown: "", qty: "", rate: "", disc: ""}); invoiceRender(); }
+function invoiceRemoveRow(i) { state.invoiceRows.splice(i, 1); if (!state.invoiceRows.length) invoiceAddRow(); else { invoiceRender(); invoiceRecalcSoon(); } }
+function invoiceAddCharge() { state.invoiceCharges.push({ledger: "", amount: "", percent: "", side: ""}); invoiceRender(); }
+function invoiceRemoveCharge(i) { state.invoiceCharges.splice(i, 1); invoiceRender(); invoiceRecalcSoon(); }
+
+function invoiceRender() {
+    const itemOptions = '<option value=""></option>' + state.stockItems.map(i =>
+        `<option value="${printEsc(i.name)}">${printEsc(i.name)} (${printEsc(i.closing_qty || 0)} ${printEsc(i.uom_symbol || "")})</option>`).join("");
+    const godownNames = (state.godowns || []).map(g => g.name).filter(Boolean);
+    const godownOptions = (godownNames.length ? godownNames : ["Main Location"]).map(n => `<option value="${printEsc(n)}">${printEsc(n)}</option>`).join("");
+    const body = document.getElementById("inv-items-body");
+    body.innerHTML = "";
+    state.invoiceRows.forEach((r, i) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td><select class="tally-input" style="width:100%;" data-f="item">${itemOptions}</select></td>
+            <td><select class="tally-input" style="width:100%;" data-f="godown">${godownOptions}</select></td>
+            <td><input class="tally-input" style="width:100%; text-align:right;" data-f="qty"></td>
+            <td><input class="tally-input" style="width:100%; text-align:right;" data-f="rate"></td>
+            <td><input class="tally-input" style="width:100%; text-align:right;" data-f="disc"></td>
+            <td style="text-align:right;" data-amount="${i}">${r.amount !== undefined ? printMoney(r.amount) : ""}</td>
+            <td><span style="cursor:pointer;" title="Remove line">&#10005;</span></td>`;
+        tr.querySelectorAll("[data-f]").forEach(el => {
+            const f = el.dataset.f;
+            el.value = r[f] || (f === "godown" ? godownNames[0] || "Main Location" : "");
+            if (f === "godown" && !r.godown) r.godown = el.value;
+            el.oninput = el.onchange = () => { r[f] = el.value; invoiceRecalcSoon(); };
+        });
+        tr.lastElementChild.onclick = () => invoiceRemoveRow(i);
+        body.appendChild(tr);
+    });
+    const ledgerNames = state.ledgers.map(l => l.name);
+    const cbody = document.getElementById("inv-charges-body");
+    cbody.innerHTML = "";
+    state.invoiceCharges.forEach((c, i) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td><select class="tally-input" style="width:100%;" data-f="ledger"><option value=""></option>${ledgerNames.map(n => `<option value="${printEsc(n)}">${printEsc(n)}</option>`).join("")}</select></td>
+            <td><input class="tally-input" style="width:100%; text-align:right;" data-f="amount"></td>
+            <td><input class="tally-input" style="width:100%; text-align:right;" data-f="percent"></td>
+            <td><select class="tally-input" style="width:100%;" data-f="side"><option value="">as invoice</option><option value="Dr">Dr</option><option value="Cr">Cr</option></select></td>
+            <td><span style="cursor:pointer;" title="Remove">&#10005;</span></td>`;
+        tr.querySelectorAll("[data-f]").forEach(el => {
+            const f = el.dataset.f;
+            el.value = c[f] || "";
+            el.oninput = el.onchange = () => { c[f] = el.value; invoiceRecalcSoon(); };
+        });
+        tr.lastElementChild.onclick = () => invoiceRemoveCharge(i);
+        cbody.appendChild(tr);
+    });
+}
+
+function invoicePayload() {
+    const get = id => document.getElementById(id).value.trim();
+    const items = state.invoiceRows.filter(r => r.item).map(r => ({
+        stock_item_name: r.item, godown_name: r.godown || undefined, qty: parseFloat(r.qty) || 0, rate: parseFloat(r.rate) || 0,
+        discount_percent: parseFloat(r.disc) || 0}));
+    const charges = state.invoiceCharges.filter(c => c.ledger && (parseFloat(c.amount) > 0 || parseFloat(c.percent) > 0)).map(c => ({
+        ledger_name: c.ledger, amount: parseFloat(c.amount) || 0, percent: parseFloat(c.percent) || undefined, entry_type: c.side || undefined}));
+    const book = get("inv-book");
+    return {voucher_type: state.voucherType, date: document.getElementById("vch-date").value, party_ledger: get("inv-party"),
+            sales_ledger: book, items, charges, gst: document.getElementById("inv-gst").checked, round_off: document.getElementById("inv-round").checked,
+            place_of_supply: get("inv-pos") || undefined, due_date: get("inv-due") || undefined, reference_no: get("inv-reference") || undefined,
+            order_ref: get("inv-order") || undefined, shipped_by: get("inv-shipped") || undefined, destination: get("inv-destination") || undefined,
+            vehicle_no: get("inv-vehicle") || undefined, consignee_name: get("inv-consignee") || undefined, narration: get("inv-narration")};
+}
+
+function invoiceRecalcSoon() { clearTimeout(invoiceTimer); invoiceTimer = setTimeout(invoiceRecalc, 300); }
+
+async function invoiceRecalc() {
+    const totals = document.getElementById("inv-totals");
+    const messages = document.getElementById("inv-messages");
+    const payload = invoicePayload();
+    if (!payload.items.length) { totals.textContent = ""; messages.textContent = ""; return; }
+    try {
+        const res = await fetch("/api/invoices/compute", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload)});
+        const out = await res.json();
+        if (!res.ok) { messages.textContent = out.error || "Cannot calculate this invoice yet"; return; }
+        messages.textContent = (out.warnings || []).join(" ");
+        document.querySelectorAll("[data-amount]").forEach(td => td.textContent = "");
+        let n = 0;
+        state.invoiceRows.forEach((r, i) => {
+            if (!r.item) { r.amount = undefined; return; }
+            r.amount = out.items[n] ? out.items[n].amount : undefined;
+            const td = document.querySelector(`[data-amount="${i}"]`);
+            if (td && r.amount !== undefined) td.textContent = printMoney(r.amount);
+            n++;
+        });
+        const line = (label, value) => `<div style="display:flex; justify-content:space-between;"><span>${printEsc(label)}</span><strong>${printMoney(value)}</strong></div>`;
+        let html = line("Items", out.item_total);
+        out.charges.forEach(c => { html += line(`${c.ledger_name} (${c.entry_type})`, c.amount); });
+        out.tax_lines.forEach(t => { html += line(`${t.kind} ${t.rate}%`, t.amount); });
+        html += `<div style="display:flex; justify-content:space-between; font-size:1rem; margin-top:4px;"><span>Invoice total (${printEsc(out.voucher_number)})</span><strong>&#8377; ${printMoney(out.total)}</strong></div>`;
+        totals.innerHTML = html;
+    } catch (err) {
+        messages.textContent = "Could not reach the server: " + err;
+    }
+}
+
+async function invoiceSave() {
+    const payload = invoicePayload();
+    if (!payload.items.length) { alert("Add at least one item line."); return; }
+    try {
+        const res = await fetch("/api/invoices/save", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload)});
+        const out = await res.json();
+        if (!res.ok) { alert(`Voucher Error: ${out.error}`); return; }
+        alert(`\u2713 Invoice ${out.voucher_number} accepted (voucher ${out.voucher_id}). Total \u20B9${printMoney(out.total)}.`);
+        state.lastInvoiceId = out.voucher_id;
+        await loadAppState();
+        goBackToGateway();
+    } catch (err) {
+        alert("Failed to save the invoice: " + err);
+    }
+}
