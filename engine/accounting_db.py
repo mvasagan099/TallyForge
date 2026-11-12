@@ -1615,9 +1615,8 @@ class EnterpriseAccountingDB(ReliabilityMixin):
         """Walk an item's movements in date order the way TallyPrime's Average Cost does.
 
         Returns (running_value, running_qty, year_rate):
-        * running_value - value after costing each issue at the running average at that moment, so earlier
-          cheap or dear stock is not averaged with later purchases. Positive-stock items land within 1-3% of
-          TallyPrime's Stock Summary on a real company (the plain overall average was 4-13% out).
+        * running_value - value after costing each month's issues at that month's average (see below). On a real
+          company one item matched TallyPrime to the paisa; two others stay 0.9% and 2.8% off (cause not found).
         * year_rate - average rate of this financial year's purchases (plus stock carried in at the start of the
           year). TallyPrime values a NEGATIVE closing balance at that rate: on a real company it reproduced
           the rate to four decimals (50.2189 per kg) where the all-time average did not. The year starts on 1 April.
@@ -1628,30 +1627,46 @@ class EnterpriseAccountingDB(ReliabilityMixin):
                   ('Stock Journal', 'Delivery Note', 'Receipt Note', 'Rejections In', 'Rejections Out', 'Material In', 'Material Out'))
             ORDER BY v.date, v.id, vi.id""", (item_name,)).fetchall()
         zero = Decimal("0")
-        qty, value = op_qty, op_val
-        rate = (op_val / op_qty) if op_qty > 0 else zero
         year_start = None
         if rows:
             last = str(rows[-1]["date"])
             year = int(last[:4]) - (1 if int(last[5:7]) < 4 else 0)
             year_start = f"{year}-04-01"
-        year_qty = year_val = None
+        # Average Cost is a MONTHLY average: a month's purchases are weighed in before that month's issues, and every
+        # issue of the month is costed at that rate. (One real item matched TallyPrime to the paisa this way; a daily
+        # running average was off by 1.4%.) Short stock keeps the last known rate.
+        months = {}
         for r in rows:
-            if year_qty is None and str(r["date"]) >= year_start:
-                year_qty, year_val = (qty, value) if qty > 0 else (zero, zero)
-            amount = to_dec(r["amount"])
+            month = months.setdefault(str(r["date"])[:7], [zero, zero, zero])
             moved = to_qty_dec(r["qty"])
             if r["direction"] == "In":
-                qty += moved
-                value += amount
-                if qty > 0:
-                    rate = value / qty
+                month[0] += moved
+                month[1] += to_dec(r["amount"])
+            else:
+                month[2] += moved
+        qty, value, rate = op_qty, op_val, ((op_val / op_qty) if op_qty > 0 else zero)
+        for key in sorted(months):
+            in_qty, in_val, out_qty = months[key]
+            total_qty, total_val = qty + in_qty, value + in_val
+            if total_qty > 0:
+                rate = total_val / total_qty
+            qty, value = total_qty - out_qty, total_val - out_qty * rate
+        # This year's purchase rate (for negative stock): the year's inwards plus stock carried in on 1 April.
+        year_qty = year_val = None
+        run_qty, run_val = op_qty, op_val
+        for r in rows:
+            if year_qty is None and str(r["date"]) >= year_start:
+                year_qty, year_val = (run_qty, run_val) if run_qty > 0 else (zero, zero)
+            moved = to_qty_dec(r["qty"])
+            if r["direction"] == "In":
+                run_qty += moved
+                run_val += to_dec(r["amount"])
                 if year_qty is not None:
                     year_qty += moved
-                    year_val += amount
+                    year_val += to_dec(r["amount"])
             else:
-                value -= moved * (value / qty if qty > 0 else rate)   # short stock is issued at the last known rate
-                qty -= moved
+                run_val -= moved * (run_val / run_qty) if run_qty > 0 else zero
+                run_qty -= moved
         year_rate = (year_val / year_qty) if year_qty else None
         return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), qty, year_rate
 

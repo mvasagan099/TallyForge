@@ -69,24 +69,28 @@ class ReportParityTests(unittest.TestCase):
         self.db.conn.commit()
         self.assertEqual(self.db.get_stock_item('Toor')['closing_qty'], 2.0)
 
-    def test_average_cost_is_a_running_average_in_date_order(self):
-        self.db.add_stock_item('Toor', uom_symbol='Kg')
+    def test_average_cost_is_a_monthly_average(self):
         self.db.add_ledger('Purchases', 'Purchase Accounts')
         self.db.add_ledger('Sales', 'Sales Accounts')
 
-        def buy(date, qty, rate):
-            amount = qty * rate
-            self.db.add_voucher('Purchase', date, 'buy', [{'ledger_name': 'Purchases', 'entry_type': 'Dr', 'amount': amount},
-                                                          {'ledger_name': 'Cash', 'entry_type': 'Cr', 'amount': amount}],
-                                inventory_items=[{'stock_item_name': 'Toor', 'qty': qty, 'rate': rate, 'amount': amount, 'direction': 'In'}])
-        buy('2026-04-01', 10, 10)
-        self.db.add_voucher('Sales', '2026-04-02', 'sell', [{'ledger_name': 'Cash', 'entry_type': 'Dr', 'amount': 100},
-                                                            {'ledger_name': 'Sales', 'entry_type': 'Cr', 'amount': 100}],
-                            inventory_items=[{'stock_item_name': 'Toor', 'qty': 5, 'rate': 20, 'amount': 100, 'direction': 'Out'}])
-        buy('2026-04-03', 5, 30)
-        item = self.db.get_stock_item('Toor')
-        self.assertEqual(item['closing_qty'], 10.0)
-        self.assertEqual(item['closing_value'], 200.0)      # 5 left at 10 + 5 bought at 30; the overall average gave 166.67
+        def run(item, sale_date, second_buy_date):
+            self.db.add_stock_item(item, uom_symbol='Kg')
+
+            def buy(date, qty, rate):
+                amount = qty * rate
+                self.db.add_voucher('Purchase', date, 'buy', [{'ledger_name': 'Purchases', 'entry_type': 'Dr', 'amount': amount},
+                                                              {'ledger_name': 'Cash', 'entry_type': 'Cr', 'amount': amount}],
+                                    inventory_items=[{'stock_item_name': item, 'qty': qty, 'rate': rate, 'amount': amount, 'direction': 'In'}])
+            buy('2026-04-01', 10, 10)
+            self.db.add_voucher('Sales', sale_date, 'sell', [{'ledger_name': 'Cash', 'entry_type': 'Dr', 'amount': 100},
+                                                             {'ledger_name': 'Sales', 'entry_type': 'Cr', 'amount': 100}],
+                                inventory_items=[{'stock_item_name': item, 'qty': 5, 'rate': 20, 'amount': 100, 'direction': 'Out'}])
+            buy(second_buy_date, 5, 30)
+            return self.db.get_stock_item(item)
+        later_month = run('Toor', '2026-04-02', '2026-05-03')
+        self.assertEqual((later_month['closing_qty'], later_month['closing_value']), (10.0, 200.0))   # 5 issued at 10, then 5 left + 5 at 30
+        same_month = run('Dal', '2026-04-02', '2026-04-03')
+        self.assertEqual((same_month['closing_qty'], same_month['closing_value']), (10.0, 166.67))   # the month's purchases are all weighed in first
 
     def test_negative_stock_is_valued_at_this_years_average_purchase_rate(self):
         self.db.add_stock_item('Toor', uom_symbol='Kg')
