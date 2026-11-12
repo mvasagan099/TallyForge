@@ -5,6 +5,15 @@ import importlib.util
 
 
 def get_route(path, query, db, store):
+    if path == '/api/vouchers/next_number':
+        vtype = query.get('voucher_type', [''])[0]
+        date = query.get('date', [''])[0] or None
+        if date and not db._valid_iso_date(date):
+            raise ValueError('Invalid date')
+        return 200, {'voucher_type': vtype, 'number': db.preview_voucher_number(vtype, date)}
+    if path == '/api/vouchers/rules':
+        strict = bool(db.get_setting('strict_voucher_entry', False))
+        return 200, {'strict': strict, 'cash_bank': sorted(db._cash_bank_ledgers()) if strict else []}
     if path == '/api/search/companies':
         return 200, store.search(query.get('q', [''])[0], db)
     if path == '/api/vouchers/print':

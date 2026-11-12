@@ -713,8 +713,49 @@ function openVoucherEntry(type) {
     if (toggleBtn) toggleBtn.textContent = "Switch to Multi-Line Grid";
 
     populateVoucherDropdowns();
+    applyVoucherTypeLedgerFilter();
     updateVchLedgerBalances();
     initMultilineEntries();
+    refreshVoucherNumberBadge();
+    const dateInput = document.getElementById("vch-date");
+    if (dateInput) dateInput.onchange = refreshVoucherNumberBadge;
+}
+
+// Shows the number the voucher will get when saved (the next in the series), like TallyPrime's "No." field.
+async function refreshVoucherNumberBadge() {
+    const badge = document.getElementById("vch-number-badge");
+    const idInput = document.getElementById("vch-id");
+    if (!badge || (idInput && idInput.value)) return;          // an open voucher keeps its own number
+    try {
+        const date = document.getElementById("vch-date").value || "";
+        const res = await fetch(`/api/vouchers/next_number?voucher_type=${encodeURIComponent(state.voucherType)}&date=${encodeURIComponent(date)}`);
+        if (res.ok) badge.textContent = "No. " + (await res.json()).number;
+    } catch (err) { /* the badge keeps its "Auto #" text */ }
+}
+
+// For a company imported from TallyPrime, Payment / Receipt / Contra offer only cash and bank ledgers on the side the rule covers.
+async function applyVoucherTypeLedgerFilter() {
+    if (!state.voucherRules) {
+        try { state.voucherRules = await (await fetch("/api/vouchers/rules")).json(); } catch (err) { state.voucherRules = {strict: false, cash_bank: []}; }
+    }
+    const rules = state.voucherRules;
+    ["vch-dr-ledger", "vch-cr-ledger"].forEach(id => {            // undo the filter of a previous voucher type first
+        const select = document.getElementById(id);
+        if (select) [...select.options].forEach(o => { o.hidden = false; o.disabled = false; });
+    });
+    if (!rules.strict) return;
+    const allowed = new Set(rules.cash_bank);
+    const filterSelect = (id) => {
+        const select = document.getElementById(id);
+        if (!select) return;
+        const keep = select.value;
+        [...select.options].forEach(o => { o.hidden = !allowed.has(o.value); o.disabled = !allowed.has(o.value); });
+        if (!allowed.has(keep)) { const first = [...select.options].find(o => allowed.has(o.value)); if (first) select.value = first.value; }
+    };
+    const type = state.voucherType;
+    if (type === "Payment") filterSelect("vch-cr-ledger");
+    else if (type === "Receipt") filterSelect("vch-dr-ledger");
+    else if (type === "Contra") { filterSelect("vch-dr-ledger"); filterSelect("vch-cr-ledger"); }
 }
 
 function toggleVoucherMode() {
@@ -1025,6 +1066,8 @@ function onVoucherTypeChanged(newType) {
         if (crLabel) crLabel.textContent = "Credit (Customer / Income):";
     }
     updateVchLedgerBalances();
+    applyVoucherTypeLedgerFilter();
+    refreshVoucherNumberBadge();
 }
 
 function populateVoucherDropdowns() {

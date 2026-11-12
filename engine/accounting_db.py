@@ -1917,6 +1917,19 @@ class EnterpriseAccountingDB(ReliabilityMixin):
         latest[i] = str(highest + 1).zfill(width)
         return "".join(latest)
 
+    def preview_voucher_number(self, voucher_type: str, date: Optional[str] = None) -> str:
+        """The number a new voucher of this type and date will get: the next in the series, or the app's default numbering when
+        there is no series to follow (or the next number is already taken in that financial year)."""
+        fy_from, fy_to = self._financial_year(date or datetime.date.today().isoformat())
+        number = self.next_voucher_number(voucher_type, date)
+        if number and not self.conn.execute(
+                "SELECT 1 FROM voucher WHERE voucher_number = ? AND voucher_type = ? AND date >= ? AND date <= ?",
+                (number, voucher_type, fy_from, fy_to)).fetchone():
+            return number
+        count = self.conn.execute("SELECT COUNT(*) FROM voucher WHERE voucher_type = ?", (voucher_type,)).fetchone()[0] + 1
+        prefix = "".join([c for c in voucher_type if c.isupper()]) or voucher_type[:3].upper()
+        return f"{prefix}-{count:04d}"
+
     @staticmethod
     def _valid_iso_date(text):
         try:
@@ -2077,14 +2090,8 @@ class EnterpriseAccountingDB(ReliabilityMixin):
             if cursor.fetchone():
                 raise ValueError(f"Duplicate voucher number '{v_num_str}'!")
         else:
-            fy_from, fy_to = self._financial_year(date or datetime.date.today().isoformat())
             clean_prefix = "".join([c for c in voucher_type if c.isupper()]) or voucher_type[:3].upper()
-            v_num_str = self.next_voucher_number(voucher_type, date)
-            if not v_num_str or self.conn.execute("SELECT 1 FROM voucher WHERE voucher_number = ? AND voucher_type = ? AND date >= ? AND date <= ?",
-                                                  (v_num_str, voucher_type, fy_from, fy_to)).fetchone():
-                cursor.execute("SELECT COUNT(*) FROM voucher WHERE voucher_type = ?", (voucher_type,))
-                v_num = cursor.fetchone()[0] + 1
-                v_num_str = f"{clean_prefix}-{v_num:04d}"
+            v_num_str = self.preview_voucher_number(voucher_type, date)
             if registration_id:
                 count = self.conn.execute('SELECT COUNT(*) FROM voucher WHERE voucher_type=? AND gst_registration_id=?', (voucher_type, registration_id)).fetchone()[0]
                 v_num_str = f"R{registration_id}-{clean_prefix}-{count+1:04d}"

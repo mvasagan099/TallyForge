@@ -238,6 +238,28 @@ class EntryRuleTests(unittest.TestCase):
         vid = self.db.add_voucher('Sales', '2026-05-02', 'x', [dr('Buyer', 10), cr('Sales', 10)], gst_registration_id=reg)
         self.assertEqual(self.number(vid), f'R{reg}-S-0001')          # registration-scoped numbering is its own series
 
+    # what the entry screen shows ------------------------------------------------------------------
+    def test_the_number_previewed_on_screen_is_the_number_saving_uses(self):
+        self.db.add_voucher('Payment', '2026-05-01', 'x', [dr('Rent', 5), cr('Cash', 5)], voucher_number='5490')
+        self.assertEqual(self.db.preview_voucher_number('Payment', '2026-06-01'), '5491')
+        vid = self.db.add_voucher('Payment', '2026-06-01', 'x', [dr('Rent', 5), cr('Cash', 5)])
+        self.assertEqual(self.number(vid), '5491')
+        self.assertEqual(self.db.preview_voucher_number('Payment', '2026-06-02'), '5492')
+        self.assertTrue(self.db.preview_voucher_number('Journal', '2026-06-01').startswith('J-'))      # no series: the default numbering
+
+    def test_screen_rules_list_cash_and_bank_ledgers_only_for_imported_companies(self):
+        from engine.extension_api import get_route
+        status, legacy = get_route('/api/vouchers/rules', {}, self.db, None)
+        self.assertEqual((status, legacy), (200, {'strict': False, 'cash_bank': []}))
+        self.strict()
+        status, rules = get_route('/api/vouchers/rules', {}, self.db, None)
+        self.assertTrue(rules['strict'])
+        self.assertEqual(rules['cash_bank'], ['Bank', 'Cash'])
+        status, number = get_route('/api/vouchers/next_number', {'voucher_type': ['Sales'], 'date': ['2026-05-01']}, self.db, None)
+        self.assertEqual((status, number['number']), (200, 'S-0001'))
+        with self.assertRaises(ValueError):
+            get_route('/api/vouchers/next_number', {'voucher_type': ['Sales'], 'date': ['5/1/2026']}, self.db, None)
+
 
 if __name__ == '__main__':
     unittest.main()
