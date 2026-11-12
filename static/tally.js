@@ -4503,11 +4503,17 @@ function handleCommandPaletteKey(e) {
 // Every figure comes from the server's preview, so what you see is what saving posts.
 // ---------------------------------------------------------------------------------------------------------------
 const ORDER_VOUCHER_TYPES = ["Sales Order", "Purchase Order"];
-const INVOICE_TYPES = ["Sales", "Purchase", "Credit Note", "Debit Note", ...ORDER_VOUCHER_TYPES];
+const NOTE_VOUCHER_TYPES = ["Delivery Note", "Receipt Note"];
+const NON_POSTING_TYPES = [...ORDER_VOUCHER_TYPES, ...NOTE_VOUCHER_TYPES];
+const INVOICE_TYPES = ["Sales", "Purchase", "Credit Note", "Debit Note", ...NON_POSTING_TYPES];
 let invoiceTimer = null;
 
-function invoiceIsSalesSide(type) { return type === "Sales" || type === "Credit Note" || type === "Sales Order"; }
-function invoiceOrderTypeFor(type) { return type === "Sales" ? "Sales Order" : type === "Purchase" ? "Purchase Order" : null; }
+function invoiceIsSalesSide(type) { return ["Sales", "Credit Note", "Sales Order", "Delivery Note"].includes(type); }
+// What a voucher can be allocated to: an invoice to the party's orders and unbilled delivery / receipt notes, a note to its orders.
+function invoiceOrderTypesFor(type) {
+    return {"Sales": ["Sales Order", "Delivery Note"], "Purchase": ["Purchase Order", "Receipt Note"],
+            "Delivery Note": ["Sales Order"], "Receipt Note": ["Purchase Order"]}[type] || [];
+}
 
 function invoiceFill(select, names, keep) {
     select.innerHTML = "";
@@ -4528,11 +4534,12 @@ function openInvoiceMode(type) {
     document.getElementById("inv-gst").checked = false;
     document.getElementById("inv-round").checked = false;
     const isOrder = ORDER_VOUCHER_TYPES.includes(type);
-    document.getElementById("inv-th-extra").textContent = isOrder ? "Due on" : "Against order";
-    document.getElementById("inv-th-extra").style.display = (isOrder || invoiceOrderTypeFor(type)) ? "" : "none";
+    const nonPosting = NON_POSTING_TYPES.includes(type);
+    document.getElementById("inv-th-extra").textContent = isOrder ? "Due on" : "Against order / note";
+    document.getElementById("inv-th-extra").style.display = (isOrder || invoiceOrderTypesFor(type).length) ? "" : "none";
     document.getElementById("inv-ref-label").firstChild.textContent = isOrder ? "Order no. " : (salesSide ? "Reference no. " : "Supplier invoice no. ");
-    ["inv-gst", "inv-round"].forEach(id => { document.getElementById(id).closest("label").style.display = isOrder ? "none" : ""; });
-    document.getElementById("inv-charges-body").closest("table").style.display = isOrder ? "none" : "";
+    ["inv-gst", "inv-round"].forEach(id => { document.getElementById(id).closest("label").style.display = nonPosting ? "none" : ""; });
+    document.getElementById("inv-charges-body").closest("table").style.display = nonPosting ? "none" : "";
     state.invoiceOrderLines = [];
     state.invoiceRows = [{item: "", godown: "", qty: "", rate: "", disc: ""}];
     state.invoiceCharges = [];
@@ -4557,13 +4564,14 @@ function invoicePartyChanged() {
 
 // The party's pending order lines, so each invoice line can be allocated to one.
 async function invoiceLoadOrderLines(party) {
-    const orderType = invoiceOrderTypeFor(state.voucherType);
     state.invoiceOrderLines = [];
-    if (orderType && party) {
-        try {
-            const res = await fetch(`/api/orders/lines?order_type=${encodeURIComponent(orderType)}&party=${encodeURIComponent(party)}`);
-            if (res.ok) state.invoiceOrderLines = (await res.json()).lines || [];
-        } catch (err) { /* no orders to offer */ }
+    if (party) {
+        for (const orderType of invoiceOrderTypesFor(state.voucherType)) {
+            try {
+                const res = await fetch(`/api/orders/lines?order_type=${encodeURIComponent(orderType)}&party=${encodeURIComponent(party)}`);
+                if (res.ok) state.invoiceOrderLines.push(...((await res.json()).lines || []).map(l => ({...l, doc_type: orderType})));
+            } catch (err) { /* nothing to offer */ }
+        }
     }
     invoiceRender();
 }
@@ -4581,12 +4589,12 @@ function invoiceRender() {
     const body = document.getElementById("inv-items-body");
     body.innerHTML = "";
     const isOrder = ORDER_VOUCHER_TYPES.includes(state.voucherType);
-    const hasOrders = !!invoiceOrderTypeFor(state.voucherType);
+    const hasOrders = invoiceOrderTypesFor(state.voucherType).length > 0;
     const extraCell = (r) => {
         if (isOrder) return '<td><input type="date" class="tally-input" style="width:100%;" data-f="due"></td>';
         if (!hasOrders) return "";
         const options = (state.invoiceOrderLines || []).filter(l => l.stock_item_name === r.item).map(l =>
-            `<option value="${l.voucher_id}">${printEsc(l.order_no)} - ${printEsc(l.date)} - pending ${printEsc(l.pending_qty)} ${printEsc(l.unit)}</option>`).join("");
+            `<option value="${l.voucher_id}">${printEsc(l.doc_type)} ${printEsc(l.order_no)} - ${printEsc(l.date)} - pending ${printEsc(l.pending_qty)} ${printEsc(l.unit)}</option>`).join("");
         return `<td><select class="tally-input" style="width:100%;" data-f="order"><option value="">-</option>${options}</select></td>`;
     };
     state.invoiceRows.forEach((r, i) => {
