@@ -2860,6 +2860,17 @@ class EnterpriseAccountingDB(ReliabilityMixin):
         return tb
 
     @staticmethod
+    def _under_group(groups, name, targets):
+        """True if group ``name`` is one of ``targets`` or sits anywhere below one of them."""
+        seen = set()
+        while name is not None and name not in seen:
+            if name in targets:
+                return True
+            seen.add(name)
+            name = groups.get(name, {}).get("parent")
+        return False
+
+    @staticmethod
     def _root_group(groups, name):
         """Top-level group (directly under Primary) that ``name`` belongs to."""
         seen = set()
@@ -2973,17 +2984,18 @@ class EnterpriseAccountingDB(ReliabilityMixin):
         current_liab = Decimal("0.00")
         loans, capital = Decimal("0.00"), Decimal("0.00")
 
+        groups = {r["name"]: dict(r) for r in self.conn.execute("SELECT name, parent FROM account_group")}
         for l in ledgers:
             grp = l["group_name"]
             bal_dec, btype = self.get_ledger_closing_balance(l["name"])
-
-            if grp in ("Current Assets", "Bank Accounts", "Cash-in-Hand", "Sundry Debtors", "Deposits (Asset)"):
+            # Sub-groups count with their parent (Sundry Debtors, Duties & Taxes, Bank OD A/c ... all sit under a root).
+            if self._under_group(groups, grp, ("Current Assets",)):
                 current_assets += bal_dec if btype == "Dr" else -bal_dec
-            elif grp in ("Current Liabilities", "Sundry Creditors", "Duties & Taxes", "Provisions"):
+            elif self._under_group(groups, grp, ("Current Liabilities",)):
                 current_liab += bal_dec if btype == "Cr" else -bal_dec
-            elif grp in ("Loans (Liability)", "Bank OD A/c", "Secured Loans", "Unsecured Loans"):
+            elif self._under_group(groups, grp, ("Loans (Liability)", "Bank OD A/c")):
                 loans += bal_dec if btype == "Cr" else -bal_dec
-            elif grp in ("Capital Account", "Reserves & Surplus"):
+            elif self._under_group(groups, grp, ("Capital Account", "Reserves & Surplus")):
                 capital += bal_dec if btype == "Cr" else -bal_dec
 
         c_ratio = (current_assets / current_liab).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if current_liab > Decimal("0") else Decimal("2.00")
@@ -3009,13 +3021,13 @@ class EnterpriseAccountingDB(ReliabilityMixin):
         }
 
     def get_cash_bank_summary(self) -> List[Dict[str, Any]]:
-        ledgers = self.get_ledgers()
+        groups = {r["name"]: dict(r) for r in self.conn.execute("SELECT name, parent FROM account_group")}
         return [{
             "name": l["name"],
             "group_name": l["group_name"],
             "balance": l["closing_balance"],
             "balance_type": l["closing_balance_type"]
-        } for l in ledgers if l["group_name"] in ("Bank Accounts", "Cash-in-Hand", "Bank OD A/c")]
+        } for l in self.get_ledgers() if self._under_group(groups, l["group_name"], ("Bank Accounts", "Cash-in-Hand", "Bank OD A/c"))]
 
     def get_general_ledger_statement(self, ledger_name: str, from_date: Optional[str] = None, to_date: Optional[str] = None) -> Dict[str, Any]:
         """

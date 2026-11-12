@@ -147,6 +147,21 @@ class ReportParityTests(unittest.TestCase):
         self.assertEqual(sheet['assets']['current_assets']['trade_receivables'], 25.0)      # a sub-group of Sundry Debtors
         self.assertEqual(sheet['assets']['current_assets']['cash_and_bank_balances'], 960.0)
 
+    def test_ratio_analysis_and_cash_summary_include_sub_groups(self):
+        self.db.add_group('Retail Debtors', 'Sundry Debtors', is_revenue=False)
+        self.db.add_group('Petty Cash', 'Cash-in-Hand', is_revenue=False)
+        self.db.add_ledger('Shop', 'Retail Debtors')
+        self.db.add_ledger('Drawer', 'Petty Cash')
+        self.db.add_ledger('Owner', 'Capital Account')
+        self.db.add_ledger('Tax', 'Duties & Taxes')
+        self.journal('Shop', 'Tax', 50)
+        self.journal('Drawer', 'Owner', 200)
+        ratios = self.db.get_ratio_analysis()
+        self.assertEqual(ratios['current_assets'], 250.0)          # debtors 50 + cash 200, both in sub-groups
+        self.assertEqual(ratios['current_liabilities'], 50.0)
+        self.assertEqual(ratios['current_ratio'], 5.0)
+        self.assertEqual({r['name'] for r in self.db.get_cash_bank_summary()}, {'Cash', 'Drawer'})
+
     def test_outstanding_bills_are_classified_by_balance_side_like_tallyprime(self):
         self.db.add_ledger('Buyer', 'Sundry Debtors')
         self.db.add_ledger('Supplier', 'Sundry Creditors')
