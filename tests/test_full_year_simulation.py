@@ -180,6 +180,13 @@ class TestFullYearSimulation(unittest.TestCase):
         # -------------------------------------------------------------
         # Step 8: Offline NIC v1.1 e-Invoice JSON Generation
         # -------------------------------------------------------------
+        # A submission needs real seller and buyer GSTINs, addresses and pincodes and never substitutes sample values.
+        with self.assertRaisesRegex(ValueError, "GSTINs are required"):
+            self.db.generate_einvoice_json(v5_id)
+        self.db.conn.execute("UPDATE company SET address=?, pincode=? WHERE id=?", ("12 Industrial Layout, Bengaluru", "560001", self.db.active_company_id))
+        self.db.conn.execute("UPDATE ledger SET gstin=?, address=?, pincode=?, state=?, state_code=? WHERE name=?",
+                             ("29AABCC1234D1Z5", "7 Market Road, Bengaluru", "560002", "Karnataka", "29", "Customer ABC Pvt Ltd"))
+        self.db.conn.commit()
         einv = self.db.generate_einvoice_json(v5_id)
         self.assertEqual(einv["Version"], "1.1")
         self.assertEqual(einv["DocDtls"]["No"], "S-0001")
@@ -190,6 +197,10 @@ class TestFullYearSimulation(unittest.TestCase):
         # -------------------------------------------------------------
         # Step 9: Offline NIC e-Way Bill JSON Generation
         # -------------------------------------------------------------
+        with self.assertRaisesRegex(ValueError, "vehicle number"):              # real transport details are required, none invented
+            self.db.generate_eway_bill_json(v5_id)
+        self.db.conn.execute("UPDATE voucher SET vehicle_no=?, distance_km=? WHERE id=?", ("KA01AB1234", 120, v5_id))
+        self.db.conn.commit()
         eway = self.db.generate_eway_bill_json(v5_id)
         self.assertEqual(eway["supplyType"], "O")
         self.assertEqual(eway["totalValue"], 88500.0)
@@ -279,8 +290,9 @@ class TestFullYearSimulation(unittest.TestCase):
         # -------------------------------------------------------------
         # Step 14: Monthly Payroll Run (Attendance, Allowances, PF, PT)
         # -------------------------------------------------------------
-        v10_id = self.db.process_payroll_voucher("May 2026", "2026-05-31")
-        self.assertGreater(v10_id, 0)
+        # Posting payroll needs separate company books (it is tested in test_banking_payroll); a shared legacy database refuses it.
+        with self.assertRaisesRegex(ValueError, "separate company books"):
+            self.db.process_payroll_voucher("May 2026", "2026-05-31")
         slip = self.db.calculate_employee_salary("EMP001")
         self.assertEqual(slip["gross_salary"], 60000.0)
         self.assertEqual(slip["net_salary"], 54400.0)

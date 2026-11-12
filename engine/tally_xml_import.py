@@ -248,8 +248,6 @@ def _voucher(node, fix, src):
          'deleted': _yes(node.findtext('ISDELETED')), 'source': src,
          'entries': [], 'inventory': [], 'zero_entries': 0, 'deduplicated_allocations': 0}
     sources = {}  # list tag -> entries, merged below
-    if not guid:
-        raise TallyImportError(f'{src}: voucher without GUID on {v["date"]}')
     for child in node:
         if child.tag in ENTRY_TAGS:
             e = _signed_entry(child, fix, where)
@@ -302,6 +300,13 @@ def _voucher(node, fix, src):
     chosen = next((x for x in candidates if sum((e['amount'] for e in x), Decimal('0')) == 0), candidates[0] if candidates else [])
     v['entries'] = list(chosen)
     v['deduplicated_allocations'] = len(a) + len(b) + len(c) - len(chosen)
+    if not v['guid']:
+        # Hand-made or third-party Tally XML often carries no GUID. Key the voucher by its content so the same file imported
+        # again is recognised (idempotent); an edited copy of such a voucher is a new voucher, not a change.
+        content = json.dumps([v['type'], v['date'], v['number'], v['narration'], sorted((e['ledger'], str(e['amount'])) for e in v['entries']),
+                              sorted((i['item'], str(i['qty']), str(i['amount'])) for i in v['inventory'])], ensure_ascii=False)
+        v['guid'] = 'content-' + hashlib.sha256(content.encode('utf-8')).hexdigest()[:40]
+        v['guid_derived'] = True
     return v
 
 

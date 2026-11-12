@@ -10,6 +10,14 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from engine.native_records import checksum, read, text_fields
 
+def _symlink_or_skip(testcase, link, target, **kw):
+    """Create a symlink, or skip the test where the OS does not allow it (Windows needs Developer Mode or admin)."""
+    try:
+        link.symlink_to(target, **kw)
+    except OSError as exc:
+        testcase.skipTest(f"symlinks not permitted here: {exc.strerror}")
+
+
 
 def reference_crc(data, seed):
     # Independent bitwise reference, rather than the production C-library CRC.
@@ -143,7 +151,7 @@ class NativeRecordsTests(unittest.TestCase):
                        {'kind':'detail','sequence':0,'source':'Manager.1800'}):
             with self.assertRaises(ValueError):read(self.root,'native:100124',**kwargs)
         with self.assertRaises(ValueError):read(self.root,'native:../100124')
-        (self.root/'100125').symlink_to(self.root/'100124',target_is_directory=True)
+        _symlink_or_skip(self,self.root/'100125',self.root/'100124',target_is_directory=True)
         with self.assertRaises(ValueError):read(self.root,'native:100125')
 
     def test_checksum_matches_independent_reference_and_page_number_seed(self):

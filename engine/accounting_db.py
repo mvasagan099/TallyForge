@@ -2078,12 +2078,12 @@ class EnterpriseAccountingDB(ReliabilityMixin):
                 raise ValueError(f"Duplicate voucher number '{v_num_str}'!")
         else:
             fy_from, fy_to = self._financial_year(date or datetime.date.today().isoformat())
+            clean_prefix = "".join([c for c in voucher_type if c.isupper()]) or voucher_type[:3].upper()
             v_num_str = self.next_voucher_number(voucher_type, date)
             if not v_num_str or self.conn.execute("SELECT 1 FROM voucher WHERE voucher_number = ? AND voucher_type = ? AND date >= ? AND date <= ?",
                                                   (v_num_str, voucher_type, fy_from, fy_to)).fetchone():
                 cursor.execute("SELECT COUNT(*) FROM voucher WHERE voucher_type = ?", (voucher_type,))
                 v_num = cursor.fetchone()[0] + 1
-                clean_prefix = "".join([c for c in voucher_type if c.isupper()]) or voucher_type[:3].upper()
                 v_num_str = f"{clean_prefix}-{v_num:04d}"
             if registration_id:
                 count = self.conn.execute('SELECT COUNT(*) FROM voucher WHERE voucher_type=? AND gst_registration_id=?', (voucher_type, registration_id)).fetchone()[0]
@@ -2094,9 +2094,9 @@ class EnterpriseAccountingDB(ReliabilityMixin):
 
         with self.conn:
             cur = self.conn.execute("""
-                INSERT INTO voucher (voucher_type, voucher_number, date, narration, total_amount, currency_symbol, exchange_rate, is_optional)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (voucher_type, v_num_str, v_date, narration, total_amt, currency_symbol, exchange_rate, 1 if is_optional else 0))
+                INSERT INTO voucher (voucher_type, voucher_number, date, narration, total_amount, currency_symbol, exchange_rate, is_optional, company_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (voucher_type, v_num_str, v_date, narration, total_amt, currency_symbol, exchange_rate, 1 if is_optional else 0, self.active_company_id))
             v_id = cur.lastrowid
             if registration_id:
                 self.conn.execute('UPDATE voucher SET gst_registration_id=? WHERE id=?', (registration_id, v_id))
@@ -2738,9 +2738,14 @@ class EnterpriseAccountingDB(ReliabilityMixin):
             reader = csv.DictReader(io.StringIO(csv_data.strip()))
             for r in reader:
                 row_norm = {str(k).strip().lower(): str(v).strip() for k, v in r.items() if k}
-                amt_str = row_norm.get("amount") or row_norm.get("debit") or row_norm.get("credit") or "0"
-                if amt_str == "0" or not amt_str:
-                    amt_str = row_norm.get("credit") or row_norm.get("debit") or "0"
+                def _number(text):
+                    try:
+                        return float(str(text or "0").replace(",", "") or 0)
+                    except ValueError:
+                        return 0.0
+                # A statement line has an amount, or a debit or a credit column: take the first that is really non-zero
+                # (a credit line carries "0.0" in its debit column, which used to hide the credit).
+                amt_str = str(_number(row_norm.get("amount")) or _number(row_norm.get("debit")) or _number(row_norm.get("credit")) or 0)
                 csv_rows.append({
                     "date": row_norm.get("date", datetime.date.today().isoformat()),
                     "amount": amt_str,

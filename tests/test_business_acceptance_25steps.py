@@ -175,6 +175,13 @@ class TestBusinessAcceptance25Steps(unittest.TestCase):
         # -------------------------------------------------------------
         # Step 10: Official NIC v1.1 e-Invoice JSON Generation
         # -------------------------------------------------------------
+        # Submission mode refuses missing addresses and pincodes instead of inventing them.
+        with self.assertRaises(ValueError):
+            self.db.generate_einvoice_json(v_sale)
+        self.db.conn.execute("UPDATE company SET address=?, pincode=? WHERE id=?", ("12 Industrial Layout, Bengaluru", "560001", self.db.active_company_id))
+        self.db.conn.execute("UPDATE ledger SET address=?, pincode=?, state=?, state_code=? WHERE name=?",
+                             ("7 Market Road, Bengaluru", "560002", "Karnataka", "29", "Global Tech Customer"))
+        self.db.conn.commit()
         einv = self.db.generate_einvoice_json(v_sale)
         self.assertEqual(einv["Version"], "1.1")
         self.assertEqual(einv["ValDtls"]["TotInvVal"], 118000.0)
@@ -183,6 +190,10 @@ class TestBusinessAcceptance25Steps(unittest.TestCase):
         # -------------------------------------------------------------
         # Step 11: Official NIC e-Way Bill JSON Generation
         # -------------------------------------------------------------
+        with self.assertRaisesRegex(ValueError, "vehicle number"):              # real transport details are required, none invented
+            self.db.generate_eway_bill_json(v_sale)
+        self.db.conn.execute("UPDATE voucher SET vehicle_no=?, distance_km=? WHERE id=?", ("KA01AB1234", 120, v_sale))
+        self.db.conn.commit()
         eway = self.db.generate_eway_bill_json(v_sale)
         self.assertEqual(eway["supplyType"], "O")
         self.assertEqual(eway["totalValue"], 118000.0)
@@ -265,9 +276,10 @@ class TestBusinessAcceptance25Steps(unittest.TestCase):
         # -------------------------------------------------------------
         # Step 16: Monthly Payroll Processing & Net Salary Disbursement
         # -------------------------------------------------------------
-        v_payr = self.db.process_payroll_voucher(month="May 2026", payment_date="2026-05-31")
-        self.assertGreater(v_payr, 0)
-        print("✓ Step 16: Payroll processed with PF & PT deductions.")
+        # Posting payroll needs separate company books (it is tested in test_banking_payroll); a shared legacy database refuses it.
+        with self.assertRaisesRegex(ValueError, "separate company books"):
+            self.db.process_payroll_voucher(month="May 2026", payment_date="2026-05-31")
+        print("✓ Step 16: Payroll refused on shared legacy books, as designed.")
 
         # -------------------------------------------------------------
         # Step 17: Automated BRS Statement Reconciliation

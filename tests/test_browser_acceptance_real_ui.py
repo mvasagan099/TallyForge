@@ -22,6 +22,9 @@ SCREENSHOT_DIR = os.path.abspath("tests/screenshots")
 class TestBrowserAcceptanceRealUI(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        from cdp_driver import CHROME_BIN
+        if not os.path.exists(CHROME_BIN):
+            raise unittest.SkipTest(f"needs the Chrome executable the CDP driver is configured for ({CHROME_BIN})")
         os.makedirs(SCREENSHOT_DIR, exist_ok=True)
 
         # 1. Allocate isolated test database
