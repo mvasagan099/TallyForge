@@ -69,6 +69,21 @@ class BuildPrintTests(unittest.TestCase):
         self.assertEqual({(e['ledger'], e['type'], e['amount']) for e in doc['entries']}, {('Rent', 'Dr', 1200.25), ('Cash', 'Cr', 1200.25)})
         self.assertEqual(doc['party']['ledger'], '')
 
+    def test_a_new_voucher_carries_the_buyers_gstin_from_their_latest_earlier_invoice(self):
+        # The imported sale carries the buyer's GSTIN; a voucher entered later for the same party has no stored details of its own.
+        later = self.db.add_voucher('Sales', '2026-05-20', 'later', [{'ledger_name': 'Acme Buyer\r\nUnit 2', 'entry_type': 'Dr', 'amount': 50},
+                                                                     {'ledger_name': 'Sales', 'entry_type': 'Cr', 'amount': 50}],
+                                    inventory_items=[{'stock_item_name': 'Rice', 'qty': 2, 'rate': 25, 'amount': 50}])
+        doc = build_print(self.db, later)
+        self.assertEqual((doc['party']['gstin'], doc['place_of_supply']), ('33ABCDE1234F1Z5', 'Tamil Nadu'))
+        self.assertEqual(doc['party']['address'], '12 Market Road')
+        # A party never invoiced before has nothing to carry: nothing is invented.
+        self.db.add_ledger('New Buyer', 'Sundry Debtors')
+        fresh = self.db.add_voucher('Sales', '2026-05-21', 'x', [{'ledger_name': 'New Buyer', 'entry_type': 'Dr', 'amount': 10},
+                                                                {'ledger_name': 'Sales', 'entry_type': 'Cr', 'amount': 10}],
+                                    inventory_items=[{'stock_item_name': 'Rice', 'qty': 1, 'rate': 10, 'amount': 10}])
+        self.assertEqual(build_print(self.db, fresh)['party']['gstin'], '')
+
     def test_unknown_voucher_is_an_error(self):
         with self.assertRaises(ValueError):
             build_print(self.db, 99999)
