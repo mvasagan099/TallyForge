@@ -397,6 +397,8 @@
                                     <li class="gateway-menu-item" data-action="Display" data-target="ContraRegister"><span>Contra Register</span></li>
                                     <li class="gateway-menu-item" data-action="Display" data-target="CreditNoteRegister"><span>Credit Note Register</span></li>
                                     <li class="gateway-menu-item" data-action="Display" data-target="DebitNoteRegister"><span>Debit Note Register</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="PurchaseOrders"><span>Purchase Orders (pending)</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="SalesOrders"><span>Sales Orders (pending)</span></li>
                                     <li class="gateway-menu-item" data-action="Display" data-target="StockSummary"><span>Stoc<span class="hotkey">k</span> Summary</span></li>
                                     <li class="gateway-menu-item" data-action="Display" data-target="OutstandingReceivables"><span>Bills <span class="hotkey">O</span>utstanding (Receivables)</span></li>
                                     <li class="gateway-menu-item" data-action="Display" data-target="OutstandingPayables"><span>Bills Pa<span class="hotkey">y</span>able (Ageing)</span></li>
@@ -602,7 +604,7 @@
                         </div>
                         <div id="inv-party-info" style="font-size:0.75rem; color:var(--text-muted);"></div>
                         <table class="tally-table" style="width:100%; font-size:0.8rem;">
-                            <thead><tr><th>Item</th><th>Godown</th><th style="width:90px;">Qty</th><th style="width:100px;">Rate</th><th style="width:70px;">Disc %</th><th style="width:120px;">Amount</th><th style="width:30px;"></th></tr></thead>
+                            <thead><tr><th>Item</th><th>Godown</th><th style="width:90px;">Qty</th><th style="width:100px;">Rate</th><th style="width:70px;">Disc %</th><th id="inv-th-extra" style="width:170px;">Against order</th><th style="width:120px;">Amount</th><th style="width:30px;"></th></tr></thead>
                             <tbody id="inv-items-body"></tbody>
                         </table>
                         <div><button class="btn-tally-primary" onclick="invoiceAddRow()" style="font-size:0.75rem; padding:3px 10px; background:var(--surface-hover); color:var(--text-primary); border:1px solid var(--border-color);">+ Add item</button></div>

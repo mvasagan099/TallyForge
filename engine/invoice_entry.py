@@ -12,11 +12,13 @@ import datetime
 import json
 from decimal import Decimal, ROUND_HALF_UP
 
+from engine import orders
 from engine.gst_entry import suggest_gst
 
 CENT = Decimal("0.01")
-SUPPORTED = ("Sales", "Purchase", "Credit Note", "Debit Note")
-ITEM_SIDE = {"Sales": "Cr", "Debit Note": "Cr", "Purchase": "Dr", "Credit Note": "Dr"}     # the side the sales/purchase ledger takes
+ORDER_TYPES = orders.ORDER_TYPES
+SUPPORTED = ("Sales", "Purchase", "Credit Note", "Debit Note") + ORDER_TYPES
+ITEM_SIDE = {"Sales": "Cr", "Debit Note": "Cr", "Sales Order": "Cr", "Purchase": "Dr", "Credit Note": "Dr", "Purchase Order": "Dr"}
 
 
 def _money(value):
@@ -51,6 +53,9 @@ def build_invoice(db, data):
     party_side = _flip(item_side)
     out_types = db.STOCK_OUT_TYPES
     direction = "Out" if vtype in out_types else "In"
+    is_order = vtype in ORDER_TYPES
+    if is_order and (data.get("charges") or data.get("gst") or data.get("round_off")):
+        raise ValueError("An order has item lines only: no charges, GST or round off")
 
     items, item_total = [], Decimal("0.00")
     for n, line in enumerate(raw_items, 1):
@@ -71,7 +76,10 @@ def build_invoice(db, data):
                 and abs(amount - gross) > max(Decimal("0.05"), qty * Decimal("0.005") + Decimal("0.01")):
             raise ValueError(f"Amount {amount} of '{name}' does not match quantity x rate ({gross:.2f})")
         item_total += amount
-        items.append({"no": n, "stock_item_name": name, "unit": row[0] or "", "qty": float(qty), "rate": float(rate),
+        due = line.get("due_date") or None
+        if due and not db._valid_iso_date(due):
+            raise ValueError(f"Invalid due date '{due}' for '{name}': use YYYY-MM-DD")
+        items.append({"no": n, "due_date": due or "", "order_voucher_id": line.get("order_voucher_id"), "stock_item_name": name, "unit": row[0] or "", "qty": float(qty), "rate": float(rate),
                       "discount_percent": float(discount), "amount": float(amount), "godown_name": line.get("godown_name") or "Main Location",
                       "batch_number": line.get("batch_number") or "", "direction": direction})
 
@@ -136,13 +144,21 @@ def build_invoice(db, data):
         if days:
             due = (datetime.date.fromisoformat(date) + datetime.timedelta(days=days)).isoformat()
     bills = []
-    maintains = db.conn.execute("SELECT maintain_bill_by_bill, group_name FROM ledger WHERE name = ?", (party,)).fetchone()
+    maintains = None if is_order else db.conn.execute("SELECT maintain_bill_by_bill, group_name FROM ledger WHERE name = ?", (party,)).fetchone()
     groups = {r["name"]: dict(r) for r in db.conn.execute("SELECT name, parent FROM account_group")}
     # Only a debtor or creditor keeps bills (a cash party does not), and only when its ledger is set to maintain them.
     if maintains and maintains[0] and db._under_group(groups, maintains[1], ("Sundry Debtors", "Sundry Creditors")):
         bills.append({"ledger_name": party, "ref_type": "New Ref", "ref_name": ref, "amount": float(total), "direction": party_side,
                       **({"due_date": due} if due else {})})
-    return {"voucher_type": vtype, "date": date, "voucher_number": number, "party_ledger": party, "book_ledger": book,
+    allocations = []
+    if not is_order:
+        wanted = [{"order_voucher_id": i["order_voucher_id"], "stock_item_name": i["stock_item_name"], "qty": i["qty"]} for i in items if i["order_voucher_id"]]
+        if wanted:
+            lines = {}
+            for i in items:
+                lines[i["stock_item_name"]] = lines.get(i["stock_item_name"], 0.0) + i["qty"]
+            allocations = orders.check_allocations(db, vtype, lines, wanted)
+    return {"voucher_type": vtype, "date": date, "voucher_number": number, "allocations": allocations, "party_ledger": party, "book_ledger": book,
             "items": items, "item_total": float(item_total), "charges": charges, "tax_lines": tax_lines, "total_tax": float(tax_total),
             "round_off": float(round_off), "total": float(total), "entries": entries, "bill_allocations": bills, "reference_no": data.get("reference_no") or "",
             "warnings": warnings}
@@ -151,11 +167,23 @@ def build_invoice(db, data):
 def save_invoice(db, data):
     built = build_invoice(db, data)
     # A discounted line is stored at its effective rate (net amount / quantity), so quantity x rate equals the amount posted.
-    inventory = [{"stock_item_name": i["stock_item_name"], "qty": i["qty"],
-                  "rate": round(i["amount"] / i["qty"], 4) if i["discount_percent"] and i["qty"] else i["rate"], "amount": i["amount"],
-                  "godown_name": i["godown_name"], "batch_number": i["batch_number"], "direction": i["direction"]} for i in built["items"]]
+    is_order = built["voucher_type"] in ORDER_TYPES
+    inventory = []
+    for i in built["items"]:
+        line = {"stock_item_name": i["stock_item_name"], "qty": i["qty"],
+                "rate": round(i["amount"] / i["qty"], 4) if i["discount_percent"] and i["qty"] else i["rate"], "amount": i["amount"],
+                "godown_name": i["godown_name"], "batch_number": i["batch_number"]}
+        if not is_order:                      # an order moves no stock, so its lines carry no direction
+            line["direction"] = i["direction"]
+        inventory.append(line)
     vid = db.add_voucher(built["voucher_type"], built["date"], data.get("narration", ""), built["entries"], inventory_items=inventory,
-                         bill_allocations=built["bill_allocations"] or None, voucher_number=built["voucher_number"])
+                         bill_allocations=built["bill_allocations"] or None, voucher_number=built["voucher_number"], is_optional=is_order)
+    if is_order:
+        orders.set_due_dates(db, vid, {i["stock_item_name"]: i["due_date"] for i in built["items"] if i["due_date"]})
+        if not data.get("reference_no"):      # the order number defaults to the voucher number
+            db.conn.execute("UPDATE voucher SET reference_no = ? WHERE id = ?", (built["voucher_number"], vid))
+    elif built["allocations"]:
+        orders.record_allocations(db, vid, built["allocations"])
     ref = data.get("reference_no")
     if ref or data.get("vehicle_no"):
         db.conn.execute("UPDATE voucher SET reference_no = COALESCE(NULLIF(?, ''), reference_no), vehicle_no = COALESCE(NULLIF(?, ''), vehicle_no) WHERE id = ?",

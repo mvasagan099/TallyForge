@@ -164,8 +164,8 @@ class LiveImportTests(unittest.TestCase):
         self.assertEqual(report['live']['census'].get('Payment/cancelled'), 1)
         self.assertEqual(report['live']['census'].get('Journal/optional'), 1)
         self.assertEqual(report['import']['counts']['vouchers_created'], 7)
-        # 1 company + masters + stock items + ledgers + census + 2 trial balances + 1 voucher month
-        self.assertEqual(len(tally.requests), 8)
+        # 1 company + masters + 2 order reports + stock items + ledgers + census + 2 trial balances + 1 voucher month
+        self.assertEqual(len(tally.requests), 10)
         # Stock masters give opening stock, the base unit (not a compound unit) and the costing method.
         db = EnterpriseAccountingDB(str(next(self.data.glob('1*/company.db'))), seed_demo=False)
         try:
@@ -355,6 +355,20 @@ class LiveImportTests(unittest.TestCase):
         info = parse_ledger_balances(raw)['Cash']
         self.assertEqual((info['mailing'], info['country'], info['state'], info['address']),
                          ('Cash Counter', 'India', 'Tamil Nadu', '1 Main Road\nChennai'))
+
+    def test_the_order_report_is_parsed_and_checked_against_the_imported_orders(self):
+        from decimal import Decimal
+        from engine.tally_live import parse_order_report
+        report = ('<ENVELOPE><DORDATE>23-Mar-26</DORDATE><DORNAME>1</DORNAME><DORITEM>Rice</DORITEM><DORPNDGQTY>7820 BOX</DORPNDGQTY>'
+                  '<DORRATE>3200.00</DORRATE><DORVALUE>-25024000.00</DORVALUE><DORDUEON>31-Mar-26</DORDUEON><ORDERDUEDAYS>( 214 days)</ORDERDUEDAYS>'
+                  '<DORDATE>26-Jun-26</DORDATE><DORNAME>5</DORNAME><DORITEM>Onion</DORITEM><DORPNDGQTY>3110.00 ton</DORPNDGQTY>'
+                  '<DORRATE>20000.00</DORRATE><DORVALUE>-62200000.00</DORVALUE><DORDUEON>25-Jul-26</DORDUEON></ENVELOPE>').encode()
+        rows = parse_order_report(report)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual((rows[0]['date'], rows[0]['order_no'], rows[0]['item'], rows[0]['pending_qty'], rows[0]['unit'], rows[0]['rate'],
+                          rows[0]['value'], rows[0]['due_date']),
+                         ('2026-03-23', '1', 'Rice', Decimal('7820'), 'BOX', Decimal('3200.00'), Decimal('25024000.00'), '2026-03-31'))
+        self.assertEqual((rows[1]['pending_qty'], rows[1]['unit'], rows[1]['due_date']), (Decimal('3110.00'), 'ton', '2026-07-25'))
 
     def test_first_failure_aborts_without_retry_and_creates_nothing(self):
         tally = FakeTally(**{'List of Accounts': OSError('timed out')})

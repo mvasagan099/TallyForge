@@ -486,6 +486,28 @@ class TDLRuntime:
             "fields": fields
         }
 
+    def _render_orders(self, report_name, kwargs, company):
+        """Pending orders like TallyPrime's Purchase Orders / Sales Orders report: pending quantity, rate, value and due date per
+        order line, with days overdue at the period end (or today)."""
+        from engine import orders as order_engine
+        order_type = "Purchase Order" if "purchase" in report_name.lower() else "Sales Order"
+        rows = order_engine.pending_orders(self.db, order_type, kwargs.get("to_date") or None, kwargs.get("party") or None)
+        header = [("Date", "Date", 11), ("OrderNo", "Order No.", 14), ("Party", "Party", 26), ("Item", "Item", 26), ("Pending", "Pending Qty", 14),
+                  ("Rate", "Rate (₹)", 12), ("Value", "Pending Value (₹)", 18), ("Due", "Due On", 11), ("Overdue", "Overdue (days)", 12)]
+        lines = [{"name": "Header", "fields": [{"name": k, "display_value": label, "width": w, "align": "right" if k in ("Pending", "Rate", "Value", "Overdue") else "left"}
+                                                for k, label, w in header]}]
+        total = 0.0
+        for r in rows:
+            total += r["pending_value"]
+            qty = f"{r['pending_qty']:,.3f}".rstrip("0").rstrip(".")
+            cells = {"Date": r["date"], "OrderNo": r["order_no"], "Party": r["party"], "Item": r["stock_item_name"], "Pending": f"{qty} {r['unit']}".strip(),
+                     "Rate": f"{r['rate']:,.2f}", "Value": f"{r['pending_value']:,.2f}", "Due": r["due_date"] or "-", "Overdue": str(r["overdue_days"]) if r["due_date"] else "-"}
+            lines.append({"name": "Row", "fields": [{"name": k, "display_value": cells[k], "width": w, "align": "right" if k in ("Pending", "Rate", "Value", "Overdue") else "left"}
+                                                      for k, _label, w in header]})
+        lines.append({"name": "Total", "fields": [{"name": "Label", "display_value": f"Total pending ({len(rows)} lines)", "width": 91, "align": "left"},
+                                                    {"name": "Value", "display_value": f"{total:,.2f}", "width": 18, "align": "right"}]})
+        return {"report": report_name, "title": order_type + "s - pending", "parts": [{"name": "OrdersPart", "lines": lines}], "company": company}
+
     def _render_stock_summary(self, report_name, kwargs, company):
         """Stock Summary like TallyPrime's: items with stock, grouped, closing quantity / rate / value; click an item for its
         monthly summary. Items with a nil balance are hidden unless asked for (a link shows them)."""
@@ -716,6 +738,9 @@ class TDLRuntime:
         """Provides instant high-fidelity rendering for all 2026 TallyPrime modules."""
         name_lower = report_name.lower()
         company = self.db.get_company()
+
+        if name_lower.replace(" ", "") in ("purchaseorders", "salesorders"):
+            return self._render_orders(report_name, kwargs, company)
 
         if name_lower.replace(" ", "") == "stocksummary":
             return self._render_stock_summary(report_name, kwargs, company)

@@ -301,6 +301,8 @@ class TallyRequestHandler(BaseHTTPRequestHandler):
                 kwargs["view"] = query["view"][0]
             if "item" in query:
                 kwargs["item"] = query["item"][0]
+            if "party" in query:
+                kwargs["party"] = query["party"][0]
             if "from_date" in query:
                 kwargs["from_date"] = query["from_date"][0]
             if "to_date" in query:
@@ -317,6 +319,8 @@ class TallyRequestHandler(BaseHTTPRequestHandler):
                 # 1. Reports match
                 reports = [
                     {"label": "Balance Sheet", "action": "Display", "target": "BalanceSheet", "category": "Report"},
+                    {"label": "Purchase Orders (pending)", "action": "Display", "target": "PurchaseOrders", "category": "Report"},
+                    {"label": "Sales Orders (pending)", "action": "Display", "target": "SalesOrders", "category": "Report"},
                     {"label": "Group Summary", "action": "Display", "target": "GroupSummary", "category": "Report"},
                     {"label": "Sales Register", "action": "Display", "target": "SalesRegister", "category": "Report"},
                     {"label": "Purchase Register", "action": "Display", "target": "PurchaseRegister", "category": "Report"},
