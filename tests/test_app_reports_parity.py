@@ -192,6 +192,19 @@ class ReportParityTests(unittest.TestCase):
         self.assertEqual(self.db.get_day_book('2026-05-01', '2026-05-31')['vouchers'], [])
         self.assertIn('Cash', period['vouchers'][0]['particulars'])
 
+    def test_bills_report_days_overdue_from_due_date_at_the_as_of_date(self):
+        self.db.add_ledger('Buyer', 'Sundry Debtors')
+        vid = self.journal('Buyer', 'Cash', 1, date='2026-04-01')
+        for ref, due in (('A1', '2026-04-20'), ('A2', None), ('A3', '2026-06-30')):
+            self.db.conn.execute('INSERT INTO bill_allocation(voucher_id,ledger_name,ref_type,ref_name,amount,direction,due_date) VALUES(?,?,?,?,?,?,?)',
+                                 (vid, 'Buyer', 'New Ref', ref, 100, 'Dr', due))
+        self.db.conn.commit()
+        bills = {b['bill_ref']: b for b in self.db.get_outstanding_bills('Sundry Debtors', as_of='2026-05-01')}
+        self.assertEqual(bills['A1']['overdue_days'], 11)        # 1 May minus the 20 April due date
+        self.assertEqual(bills['A2']['overdue_days'], 30)        # no due date: counted from the bill date, 1 April
+        self.assertEqual(bills['A3']['overdue_days'], 0)         # not yet due
+        self.assertEqual(bills['A1']['age_days'], 30)            # age still counts from the bill date
+
     def test_outstanding_bills_are_classified_by_balance_side_like_tallyprime(self):
         self.db.add_ledger('Buyer', 'Sundry Debtors')
         self.db.add_ledger('Supplier', 'Sundry Creditors')

@@ -604,7 +604,7 @@ class TDLRuntime:
 
         # 3. Receivables Ageing Analysis
         elif "receivable" in name_lower or "debtor" in name_lower:
-            bills = self.db.get_outstanding_bills("Sundry Debtors")
+            bills = self.db.get_outstanding_bills("Sundry Debtors", as_of=kwargs.get("to_date") or None)
             lines = [
                 {"name": "Header", "fields": [
                     {"name": "Party", "display_value": "Customer Name", "width": 28, "align": "left"},
@@ -612,6 +612,7 @@ class TDLRuntime:
                     {"name": "Date", "display_value": "Bill Date", "width": 12, "align": "left"},
                     {"name": "Due", "display_value": "Due Date", "width": 12, "align": "left"},
                     {"name": "Age", "display_value": "Days", "width": 8, "align": "right"},
+                    {"name": "Overdue", "display_value": "Overdue By", "width": 10, "align": "right"},
                     {"name": "Bracket", "display_value": "Ageing Bracket", "width": 14, "align": "center"},
                     {"name": "Amt", "display_value": "Pending (₹)", "width": 16, "align": "right"}
                 ]}
@@ -624,6 +625,7 @@ class TDLRuntime:
                     {"name": "Date", "display_value": b["bill_date"], "width": 12, "align": "left"},
                     {"name": "Due", "display_value": b["due_date"], "width": 12, "align": "left"},
                     {"name": "Age", "display_value": str(b["age_days"]), "width": 8, "align": "right"},
+                    {"name": "Overdue", "display_value": str(b["overdue_days"]), "width": 10, "align": "right"},
                     {"name": "Bracket", "display_value": b["age_bracket"], "width": 14, "align": "center"},
                     {"name": "Amt", "display_value": f"{b['amount']:,.2f}", "width": 16, "align": "right"}
                 ]})
@@ -635,7 +637,7 @@ class TDLRuntime:
 
         # 4. Payables Ageing Analysis
         elif "payable" in name_lower or "creditor" in name_lower:
-            bills = self.db.get_outstanding_bills("Sundry Creditors")
+            bills = self.db.get_outstanding_bills("Sundry Creditors", as_of=kwargs.get("to_date") or None)
             lines = [
                 {"name": "Header", "fields": [
                     {"name": "Party", "display_value": "Supplier Name", "width": 28, "align": "left"},
@@ -643,6 +645,7 @@ class TDLRuntime:
                     {"name": "Date", "display_value": "Bill Date", "width": 12, "align": "left"},
                     {"name": "Due", "display_value": "Due Date", "width": 12, "align": "left"},
                     {"name": "Age", "display_value": "Days", "width": 8, "align": "right"},
+                    {"name": "Overdue", "display_value": "Overdue By", "width": 10, "align": "right"},
                     {"name": "Bracket", "display_value": "Ageing Bracket", "width": 14, "align": "center"},
                     {"name": "Amt", "display_value": "Pending (₹)", "width": 16, "align": "right"}
                 ]}
@@ -655,6 +658,7 @@ class TDLRuntime:
                     {"name": "Date", "display_value": b["bill_date"], "width": 12, "align": "left"},
                     {"name": "Due", "display_value": b["due_date"], "width": 12, "align": "left"},
                     {"name": "Age", "display_value": str(b["age_days"]), "width": 8, "align": "right"},
+                    {"name": "Overdue", "display_value": str(b["overdue_days"]), "width": 10, "align": "right"},
                     {"name": "Bracket", "display_value": b["age_bracket"], "width": 14, "align": "center"},
                     {"name": "Amt", "display_value": f"{b['amount']:,.2f}", "width": 16, "align": "right"}
                 ]})

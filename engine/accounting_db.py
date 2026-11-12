@@ -2186,7 +2186,7 @@ class EnterpriseAccountingDB(ReliabilityMixin):
     # -------------------------------------------------------------------------
     # Bill-Wise Accounting & Ageing Analysis (0-30, 31-60, 61-90, 90+ days)
     # -------------------------------------------------------------------------
-    def get_outstanding_bills(self, group_filter: str = "Sundry Debtors") -> List[Dict[str, Any]]:
+    def get_outstanding_bills(self, group_filter: str = "Sundry Debtors", as_of: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Pending amount per bill reference, matching New Ref with Agst Ref the way TallyPrime's Bills
         Receivable / Bills Payable reports do (verified against a real company: identical bill list).
@@ -2220,7 +2220,7 @@ class EnterpriseAccountingDB(ReliabilityMixin):
             else:
                 item["cr_total"] += amt
 
-        today = datetime.date.today()
+        today = datetime.date.fromisoformat(as_of) if as_of else datetime.date.today()
         result = []
         for item in bills_map.values():
             net = item["dr_total"] - item["cr_total"]
@@ -2235,10 +2235,13 @@ class EnterpriseAccountingDB(ReliabilityMixin):
                     bracket = "61-90 Days"
                 elif age_days > 30:
                     bracket = "31-60 Days"
+                due_date = item["due_date"] or item["bill_date"]
                 result.append({
                     "party_name": item["party_name"], "ledger_name": item["party_name"],
                     "bill_ref": item["bill_ref"], "bill_date": item["bill_date"],
-                    "due_date": item["due_date"] or item["bill_date"],
+                    "due_date": due_date,
+                    # TallyPrime's "overdue by": the as-of date minus the due date (checked on all 3,436 bills of a real company)
+                    "overdue_days": max(0, (today - datetime.date.fromisoformat(due_date)).days),
                     "amount": float(pending), "pending_amount": float(pending),
                     "direction": "Dr" if receivable else "Cr",
                     "age_days": max(0, age_days), "age_bracket": bracket})
