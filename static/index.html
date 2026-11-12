@@ -571,6 +571,7 @@
                             <input type="date" id="vch-date" class="tally-input" style="width:100%; margin-top:4px;">
                         </div>
                         <div style="flex:1;">
+                            <label for="vch-gst-registration">GST registration</label><select id="vch-gst-registration" class="tally-input"><option value="">Main registration</option></select>
                             <strong>Currency:</strong> 
                             <select id="vch-currency" class="tally-input" style="width:100%; margin-top:4px;">
                                 <option value="₹">₹ (INR)</option>
@@ -904,12 +905,13 @@
     </div>
 
     <!-- 7. COMPANY MANAGEMENT MODAL (K: Company / F3) -->
-    <div class="modal-overlay" id="company-modal" onclick="if(event.target===this) closeCompanyModal()">
+    <div class="modal-overlay" id="company-modal" style="display:flex;" onclick="if(event.target===this) closeCompanyModal()">
         <div class="modal-dialog" style="width: 640px; max-height: 90vh; display:flex; flex-direction:column;">
             <div style="background:var(--surface-subtle); color:var(--text-primary); border-bottom:1px solid var(--border-color); padding:10px 16px; font-weight:700; display:flex; justify-content:space-between;">
                 <span>Company Management (Alt+K / F3)</span>
                 <span style="cursor:pointer;" onclick="closeCompanyModal()">✕</span>
             </div>
+            <button class="btn-tally-primary" onclick="closeCompanyModal(); openCompanyOperations()">Company Tools: Backups, Inventory, GST, Excel &amp; Payroll</button>
             <!-- Sub-tabs: Select | Alter | Create | Security | Users | Group -->
             <div style="display:flex; background:var(--surface-subtle); border-bottom:1px solid var(--border-color); font-size:0.8rem; overflow-x:auto;">
                 <button class="top-menu-btn" style="color:var(--accent-primary); font-weight:700; border-bottom:2px solid var(--accent-primary);" id="comp-tab-select-btn" onclick="switchCompanyTab('select')">Select Company</button>
@@ -922,7 +924,15 @@
             <div style="padding:16px; overflow-y:auto; flex:1;">
                 <!-- Tab 1: Select / Switch / Shut / Delete -->
                 <div id="comp-pane-select">
-                    <div style="font-weight:700; font-size:0.85rem; color:var(--text-primary); margin-bottom:8px;">Select / Switch Active Company:</div>
+                    <div style="font-weight:700; font-size:0.85rem; color:var(--text-primary); margin-bottom:8px;">Select Company — choose a folder, then press Enter on a company:</div>
+                    <label for="company-data-path">Company Data Path</label>
+                    <div style="display:flex; gap:8px; margin:8px 0;">
+                        <input id="company-data-path" class="tally-input" style="flex:1; min-width:0;" placeholder="Absolute folder path" onkeydown="if(event.key==='Enter') changeCompanyDataPath()">
+                        <button class="btn-tally-primary" onclick="changeCompanyDataPath()">Specify Path</button>
+                    </div>
+                    <button class="btn-tally-primary" onclick="openNativeTally()">Connect to TallyPrime (read-only)</button>
+                    <button class="btn-tally-primary" onclick="openTallyExchange()">Import / Export Tally data</button>
+                    <p id="company-storage-status" role="status" style="color:var(--accent-danger);"></p>
                     <div id="company-list-container" style="max-height:160px; overflow-y:auto; border:1px solid var(--border-color); border-radius:var(--radius-xs); padding:6px; margin-bottom:12px;"></div>
                     <div style="display:flex; gap:8px;">
                         <button class="btn-tally-primary" onclick="shutActiveCompany()" style="flex:1; background:var(--accent-warning); color:#fff;">Shut Active Company</button>
@@ -955,16 +965,23 @@
                         <input type="text" id="new-comp-state" class="tally-input" placeholder="State" value="Karnataka">
                         <input type="text" id="new-comp-code" class="tally-input" placeholder="State Code" value="29">
                         <input type="text" id="new-comp-address" class="tally-input" placeholder="Business Address" value="Industrial Area, Bengaluru">
-                        <input type="text" id="new-comp-pin" class="tally-input" placeholder="Pincode" value="560001">
+                        <input type="text" id="new-comp-pin" class="tally-input" placeholder="Pincode">
+                        <label>Financial year from <input type="date" id="new-comp-fy-from" class="tally-input" value="2026-04-01"></label>
+                        <label>Financial year to <input type="date" id="new-comp-fy-to" class="tally-input" value="2027-03-31"></label>
+                        <label>Books beginning <input type="date" id="new-comp-books" class="tally-input" value="2026-04-01"></label>
+                        <label>Currency symbol <input id="new-comp-currency" class="tally-input" value="₹"></label>
                     </div>
                     <button class="btn-tally-primary" onclick="submitCreateCompany()" style="margin-top:12px; width:100%; background:var(--accent-primary);">Create &amp; Select Company</button>
                 </div>
 
                 <!-- Tab 4: Security Control -->
                 <div id="comp-pane-security" style="display:none;">
-                    <div style="font-weight:700; font-size:0.85rem; color:var(--text-primary); margin-bottom:6px;">Company Security &amp; TallyVault:</div>
-                    <p style="font-size:0.78rem; color:var(--text-secondary); margin-bottom:8px;">Control access permissions and set vault encryption password for company books.</p>
-                    <label style="font-size:0.82rem;"><input type="checkbox" id="comp-sec-enabled"> Enable TallyVault Protection</label>
+                    <div style="font-weight:700; font-size:0.85rem; color:var(--text-primary); margin-bottom:6px;">Company Access Control:</div>
+                    <p style="font-size:0.78rem; color:var(--text-secondary); margin-bottom:8px;">Control access to company books. Encrypted snapshots are available separately in Company Tools.</p>
+                    <label style="font-size:0.82rem;"><input type="checkbox" id="comp-sec-enabled"> Require company login</label>
+                    <p>Create the first administrator before enabling login. Existing administrators are retained.</p>
+                    <input id="comp-admin-username" class="tally-input" placeholder="First administrator username" autocomplete="username">
+                    <input id="comp-admin-password" class="tally-input" type="password" placeholder="First administrator password (8+ characters)" autocomplete="new-password">
                     <div style="margin-top:8px;">
                         <input type="password" id="comp-sec-password" class="tally-input" placeholder="New Vault Password" style="width:100%; margin-bottom:8px;">
                         <button class="btn-tally-primary" onclick="submitCompanySecurity()" style="width:100%; background:var(--accent-primary);">Update Security Settings</button>
@@ -1680,7 +1697,176 @@
         </div>
     </div>
 
+
+    <div class="modal-overlay" id="company-operations-modal" style="display:none;" onclick="if(event.target===this)this.style.display='none'">
+      <div class="modal-dialog" style="width:850px;max-height:90vh;overflow:auto;padding:24px;">
+        <button style="float:right;" onclick="document.getElementById('company-operations-modal').style.display='none'">Close</button>
+        <h2>Company Tools</h2>
+        <pre id="operations-status" role="status" style="white-space:pre-wrap;max-height:220px;overflow:auto;"></pre>
+        <details open><summary>Backup and recovery</summary>
+          <label><input type="checkbox" id="backup-enabled"> Enable scheduled local backups</label>
+          <label>Every (minutes) <input id="backup-interval" type="number" min="5" value="60"></label>
+          <label>Versions to retain <input id="backup-keep" type="number" min="1" value="14"></label>
+          <button onclick="saveBackupSchedule()">Save schedule</button><button onclick="showBackupVersions()">Show versions</button>
+          <button onclick="createBackup()">Back up now</button><button onclick="restoreBackupPrompt()">Restore snapshot</button>
+          <p>Encrypted snapshot archive</p><input id="archive-password" type="password" placeholder="At least 12 characters"><button onclick="exportEncryptedArchive()">Export encrypted archive</button>
+        </details>
+        <details><summary>Inventory valuation</summary>
+          <label>Item <select id="valuation-item"></select></label>
+          <label>Method <select id="valuation-method"><option>Average Cost</option><option>FIFO</option><option>LIFO</option><option>Last Purchase Cost</option><option>Standard Cost</option><option>Zero Cost</option></select></label>
+          <label>Standard cost <input id="valuation-standard" type="number" min="0" value="0"></label><button onclick="saveValuation()">Save valuation</button>
+        </details>
+        <details><summary>Payroll accounts</summary>
+          <label>Salary expense <select id="payroll-expense"></select></label><label>Payment account <select id="payroll-payment"></select></label><label>Deductions payable <select id="payroll-deductions"></select></label>
+          <button onclick="savePayrollAccounts()">Save payroll accounts</button>
+        </details>
+        <details><summary>Monthly payroll and payslips</summary>
+          <label>Payroll month <input id="payroll-period" type="month"></label>
+          <label>Payment / posting date <input id="payroll-posting-date" type="date"></label>
+          <button onclick="loadMonthlyPayroll()">Load employees</button>
+          <label>Employee <select id="payroll-month-employee" onchange="showPayrollEmployeeInput()"></select></label>
+          <p>Regular earnings are prorated by paid days / scheduled days. Overtime, arrears and bonus are added afterwards. Deduction amounts below are manual inputs and must be reviewed.</p>
+          <fieldset id="payroll-month-inputs"><legend>Monthly inputs</legend>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              <label>Scheduled days <input id="payroll-scheduled-days" type="number" min="0.01" max="31" step="0.01"></label>
+              <label>Paid days <input id="payroll-paid-days" type="number" min="0" max="31" step="0.01"></label>
+              <label>Overtime hours <input id="payroll-overtime-hours" type="number" min="0" step="0.01"></label>
+              <label>Overtime rate <input id="payroll-overtime-rate" type="number" min="0" step="0.01"></label>
+              <label>Arrears <input id="payroll-arrears" type="number" min="0" step="0.01"></label>
+              <label>Bonus <input id="payroll-bonus" type="number" min="0" step="0.01"></label>
+              <label>Other deductions <input id="payroll-other-deductions" type="number" min="0" step="0.01"></label>
+              <label>Attendance / payroll reference <input id="payroll-input-reference" placeholder="Attendance or approved payroll reference"></label>
+            </div>
+            <div id="payroll-manual-deductions"></div>
+            <input id="payroll-new-deduction-name" placeholder="Deduction name, e.g. loan recovery"><input id="payroll-new-deduction-amount" type="number" min="0" step="0.01" placeholder="Amount"><button onclick="addPayrollDeduction()">Add deduction</button>
+            <button onclick="saveMonthlyPayrollInput()">Save reviewed employee inputs</button>
+          </fieldset>
+          <p id="payroll-input-note" role="status"></p>
+          <button onclick="previewMonthlyPayroll()">Preview month</button>
+          <button onclick="postMonthlyPayroll()">Post previewed payroll</button>
+          <button onclick="loadPostedPayroll()">View saved payslips</button>
+          <button onclick="downloadPostedPayroll()">Download saved payslips</button>
+          <div id="payroll-month-report"></div>
+        </details>
+        <details><summary>Additional GST registrations</summary><pre id="registration-list"></pre>
+          <input id="registration-name" placeholder="Registration / branch name"><input id="registration-gstin" placeholder="GSTIN"><input id="registration-state_code" placeholder="State code"><input id="registration-address" placeholder="Address"><input id="registration-pincode" placeholder="Pincode"><button onclick="saveRegistration()">Save registration</button>
+          <p>Registration masters are available; registration-specific return filing still requires implementation and validation.</p>
+        </details>
+        <details><summary>GST books by registration and month</summary>
+          <label>Month <input type="month" id="gst-books-period"></label>
+          <label>Registration <select id="gst-books-registration"><option value="all">All registrations</option><option value="main">Main registration</option></select></label>
+          <button onclick="showGSTBookReport()">Review posted GST</button><button onclick="downloadGSTBookReport()">Download review report</button>
+          <p>Uses posted GST ledger amounts. This report is for book review and is not a portal filing or an ITC eligibility calculation.</p><div id="gst-books-report"></div>
+        </details>
+        <details><summary>IMS review (local)</summary><input type="month" id="ims-period"><input type="file" accept=".json" id="ims-file"><button onclick="loadIMSFile()">Import invoices</button><button onclick="showIMS()">Review period</button>
+          <p>JSON array fields: supplier_gstin, invoice_number, invoice_date (YYYY-MM-DD), taxable_value, tax_value. This is a local import format.</p><div id="ims-list"></div>
+        </details>
+        <details><summary>Export and email</summary><select id="export-kind"><option>Ledgers</option><option>Stock Items</option></select><button onclick="downloadWorkbook()">Download Excel</button><input id="export-recipient" type="email" placeholder="Recipient email"><button onclick="emailWorkbook()">Send export by email</button><p>Email requires a configured SMTP account. No email is sent until you confirm the recipient.</p></details>
+        <details><summary>Import from Excel</summary><input type="file" id="excel-file" accept=".xlsx"><button onclick="prepareWorkbook()">Read workbook</button><select id="excel-kind"><option>Ledgers</option><option>Stock Items</option></select><input id="excel-mapping-name" placeholder="Mapping name" value="Default">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;"><label>Name <select id="excel-name"></select></label><label>Group Name <select id="excel-group_name"></select></label><label>Opening Balance <select id="excel-opening_balance"></select></label><label>Opening Type <select id="excel-opening_type"></select></label><label>Uom Symbol <select id="excel-uom_symbol"></select></label><label>Opening Qty <select id="excel-opening_qty"></select></label><label>Opening Rate <select id="excel-opening_rate"></select></label></div><button onclick="runWorkbookImport()">Preview</button><button onclick="runWorkbookImport(true)">Import into company</button></details>
+        <details><summary>Search company books</summary><input id="company-search-query" placeholder="Ledger, stock item, voucher number or narration"><button onclick="searchCompanyBooks()">Search</button><div id="company-search-results"></div></details>
+        <details><summary>Consolidated company reports</summary>
+          <label>Saved group <select id="consolidation-saved" onchange="loadSavedConsolidation()"><option value="">New group</option></select></label>
+          <label>Group name <input id="consolidation-name" placeholder="Group name"></label>
+          <button onclick="loadConsolidationCompanies()">Refresh companies</button>
+          <div id="consolidation-members"></div>
+          <fieldset><legend>Access a protected member</legend>
+            <select id="consolidation-auth-member"></select>
+            <input id="consolidation-username" placeholder="Member username" autocomplete="username">
+            <input id="consolidation-password" type="password" placeholder="Member password" autocomplete="current-password">
+            <button onclick="authorizeConsolidationMember()">Sign in for group reporting</button>
+          </fieldset>
+          <fieldset><legend>Eliminate a reciprocal amount</legend>
+            <label>Type <select id="elimination-kind"><option value="Balance">Receivable / payable balance</option><option value="IncomeExpense">Income / expense</option></select></label>
+            <label>Member with debit balance <select id="elimination-debit-company" onchange="loadEliminationLedgers('debit')"></select></label>
+            <label>Debit ledger <select id="elimination-debit-ledger"></select></label>
+            <label>Member with credit balance <select id="elimination-credit-company" onchange="loadEliminationLedgers('credit')"></select></label>
+            <label>Credit ledger <select id="elimination-credit-ledger"></select></label>
+            <label>Amount <input id="elimination-amount" type="number" min="0.01" step="0.01"></label>
+            <label>Reference <input id="elimination-reference" placeholder="Agreement, invoice or reconciliation reference"></label>
+            <button onclick="addConsolidationElimination()">Add adjustment</button><div id="consolidation-eliminations"></div>
+          </fieldset>
+          <button onclick="saveConsolidationGroup()">Save group</button><button onclick="runConsolidation()">Run report</button><button onclick="deleteConsolidationGroup()">Delete saved group</button>
+          <p>Eliminations affect the group report only. Each source company keeps its original entries. Members must use the same currency and financial year.</p>
+          <div id="consolidation-report"></div>
+        </details>
+        <details><summary>Connected services and compatibility requirements</summary><ul id="capability-list"></ul></details>
+      </div>
+    </div>
+    <div class="modal-overlay" id="native-tally-modal" style="display:none;z-index:10002;" onclick="if(event.target===this)this.style.display='none'">
+      <div class="modal-dialog" style="width:960px;max-width:96vw;max-height:92vh;overflow:auto;padding:24px;">
+        <button style="float:right;" onclick="document.getElementById('native-tally-modal').style.display='none'">Close</button>
+        <h2>TallyPrime company access</h2>
+        <p id="native-tally-status" role="status"></p><div id="native-tally-inspection"></div>
+        <section id="native-record-controls" style="display:none;margin:16px 0;">
+          <h3>Open native records directly · Experimental</h3>
+          <p>No Windows or running TallyPrime is required for this preview. Sales date and allocation decoding is calibrated against the supplied XML references. Historical/deleted records may appear; posting status, opening balances, other currencies and other voucher types remain unverified.</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+            <button class="btn-tally-primary" onclick="openNativeBooks()">Open company books preview</button>
+            <label>Find text <input id="native-record-search" class="tally-input" maxlength="120" placeholder="Name or voucher number"></label>
+            <button class="btn-tally-primary" onclick="readNativeRecords('masters')">Read master names</button>
+            <button class="btn-tally-primary" onclick="readNativeRecords('vouchers')">Read voucher search keys</button>
+            <button class="btn-tally-primary" onclick="readNativeRecords('transactions')">Read transaction records</button>
+            <button class="btn-tally-primary" onclick="readNativeDirectory()">Verify transaction directory</button>
+            <button class="btn-tally-primary" onclick="verifyNativeReferences()">Compare XML references</button>
+          </div>
+          <p id="native-record-status" role="status"></p>
+          <div id="native-record-results" style="max-height:42vh;overflow:auto;"></div>
+          <div id="native-record-pages" style="display:flex;gap:8px;margin-top:8px;"></div>
+          <div id="native-record-detail" style="max-height:32vh;overflow:auto;"></div>
+        </section>
+        <details><summary>Connect to TallyPrime for actual books</summary>
+        <h3>Read actual books through TallyPrime</h3>
+        <p>Start TallyPrime on its Windows computer, load this company and enable Server/Both mode on its configured port (commonly 9000). Enter that computer’s private IP below. This uses a read-only export request; manual file exports are not needed.</p>
+        <label>Tally server <input id="tally-bridge-endpoint" class="tally-input" value="http://127.0.0.1:9000" placeholder="http://192.168.1.10:9000"></label>
+        <button id="tally-bridge-connect" onclick="readTallyCompanies()">List loaded companies</button>
+        <label>Company <select id="tally-bridge-company" class="tally-input"></select></label>
+        <label>From <input id="tally-bridge-from" type="date"></label><label>To <input id="tally-bridge-to" type="date"></label>
+        <button onclick="readTallyBooks('ledgers',0)">Read ledgers</button><button onclick="readTallyBooks('vouchers',0)">Read vouchers</button>
+        <p>Without a date range, TallyPrime uses its current reporting period. Live access requires the running TallyPrime engine. Standalone decoding of native ledger/voucher files is still unverified. This view keeps Tally’s raw amounts and signs; it does not create or alter local accounting records.</p>
+        <div id="tally-bridge-results"></div><div id="tally-bridge-pages"></div>
+        </details>
+      </div>
+    </div>
+    <div class="modal-overlay" id="tally-exchange-modal" style="display:none;z-index:10002;" onclick="if(event.target===this)this.style.display='none'">
+      <div class="modal-dialog" style="width:820px;max-width:96vw;max-height:92vh;overflow:auto;padding:24px;">
+        <button style="float:right;" onclick="document.getElementById('tally-exchange-modal').style.display='none'">Close</button>
+        <h2>Import / Export Tally data</h2>
+        <style>#tally-exchange-modal label{display:block;margin:12px 0 4px}#tally-exchange-modal label.inline{display:flex;gap:8px;align-items:center}#tally-exchange-modal input.tally-input,#tally-exchange-modal select{width:100%;box-sizing:border-box}#tally-exchange-modal details{margin:14px 0;padding-bottom:8px;border-bottom:1px solid var(--border-color)}#tally-exchange-modal summary{cursor:pointer;margin-bottom:6px}#tally-exchange-modal button{margin:8px 8px 0 0}</style>
+        <p id="exchange-status" role="status"></p>
+        <div id="exchange-result"></div>
+        <details open><summary><strong>Import from Tally export files</strong></summary>
+          <p>A folder holding <code>Master.xml</code> and optionally <code>DayBook.xml</code> / <code>Transactions.xml</code> exported from TallyPrime. The files are only read. Importing again updates the same company and changes nothing that is unchanged.</p>
+          <label>Folder <input id="exchange-folder" class="tally-input" placeholder="C:\path\to\export folder"></label>
+          <button class="btn-tally-primary" onclick="importTallyFolder()">Import files</button>
+        </details>
+        <details><summary><strong>Import live from a running TallyPrime (read-only)</strong></summary>
+          <p>Reads every master, voucher, bill and balance with read-only requests, one at a time, then compares the result with TallyPrime's own Trial Balance. It can load TallyPrime heavily on a large company.</p>
+          <label>Tally server <input id="exchange-endpoint" class="tally-input" value="http://127.0.0.1:9000"></label>
+          <button onclick="listExchangeCompanies()">List loaded companies</button>
+          <label>Company <select id="exchange-company" class="tally-input"></select></label>
+          <label>Save raw responses to a new empty folder (optional, enables offline re-import) <input id="exchange-capture" class="tally-input" placeholder="C:\path\to\new capture folder"></label>
+          <label class="inline"><input type="checkbox" id="exchange-confirm-live"> I saved my work in TallyPrime and will not use it during the import</label>
+          <button class="btn-tally-primary" onclick="importTallyLive()">Import from TallyPrime</button>
+        </details>
+        <details><summary><strong>Re-import a saved capture (offline)</strong></summary>
+          <label>Company name <input id="exchange-replay-company" class="tally-input"></label>
+          <label>Capture folder <input id="exchange-replay" class="tally-input" placeholder="C:\path\to\capture folder"></label>
+          <button class="btn-tally-primary" onclick="importTallyReplay()">Import capture</button>
+        </details>
+        <details><summary><strong>Export the active company as Tally XML</strong></summary>
+          <p>Writes every group, ledger, voucher, bill and inventory line. It is checked by re-importing it into a fresh company. TallyForge never writes to TallyPrime; whether TallyPrime accepts the file has not been tested.</p>
+          <label>Save to (folder or file) <input id="exchange-export-path" class="tally-input" placeholder="C:\path\to\folder"></label>
+          <label class="inline"><input type="checkbox" id="exchange-overwrite"> Overwrite an existing file</label>
+          <button class="btn-tally-primary" onclick="exportTallyXml()">Save to disk</button>
+          <button onclick="downloadActiveTallyXml()">Download</button>
+        </details>
+      </div>
+    </div>
     <!-- Script Entrypoint -->
     <script src="/static/tally.js"></script>
+    <script src="/static/company-operations.js"></script>
+    <script src="/static/tally-native.js"></script>
+    <script src="/static/tally-exchange.js"></script>
 </body>
 </html>

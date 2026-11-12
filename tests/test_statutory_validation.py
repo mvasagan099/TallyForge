@@ -43,6 +43,10 @@ class TestStatutoryValidation(unittest.TestCase):
             }]
         )
 
+        with self.db.conn:
+            self.db.conn.execute("UPDATE ledger SET gstin='29ABCDE1234F1Z5',address='Buyer test address',pincode='560001' WHERE name='Customer ABC Pvt Ltd'")
+            self.db.conn.execute("UPDATE voucher SET vehicle_no='KA01AB1234',distance_km=50 WHERE id=?", (self.sales_vch_id,))
+
     def tearDown(self):
         self.db.close()
         if os.path.exists(self.temp_db_path):

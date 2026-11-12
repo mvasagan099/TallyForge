@@ -17,6 +17,10 @@ import sys
 import shutil
 import json
 import urllib.parse
+import threading
+import functools
+from engine.company_store import CompanyStore
+from engine.extension_api import get_route, post_route
 from http.server import HTTPServer, BaseHTTPRequestHandler
 try:
     from http.server import ThreadingHTTPServer as DefaultHTTPServer
@@ -60,14 +64,9 @@ else:
 os.makedirs(DATA_DIR, exist_ok=True)
 db_name = os.environ.get("TALLY_DB_NAME", "tally_data.db")
 db_path = os.path.join(DATA_DIR, db_name)
-if not os.path.exists(db_path) and os.path.exists(os.path.join(RESOURCE_DIR, "tally_data.db")):
-    try:
-        shutil.copy2(os.path.join(RESOURCE_DIR, "tally_data.db"), db_path)
-    except Exception:
-        pass
-
-# Global Engine Instances
-db = EnterpriseAccountingDB(db_path)
+# Keep an empty folder empty until the user creates a company. Never copy bundled books.
+# The in-memory engine supports existing state/version APIs before selection.
+db = EnterpriseAccountingDB(db_path) if os.path.isfile(db_path) else EnterpriseAccountingDB(":memory:", seed_demo=False)
 tdl_manager = TDLExtensionManager(DEFS_DIR)
 symbol_table = tdl_manager.reload_all()
 parser = tdl_manager.parser
@@ -79,12 +78,63 @@ test_suite_tdl = os.path.join(DEFS_DIR, "tdl_test_suite.tdl")
 runtime = TDLRuntime(symbol_table, db)
 lab = TDLLaboratory(symbol_table, db, runtime)
 
+company_store = CompanyStore(DATA_DIR, os.path.join(DATA_DIR, "company-path.json"),
+                             explicit=bool(os.environ.get("TALLY_DATA_DIR")), legacy_name=db_name)
+_company_lock = threading.RLock()
+_company_generation = None
+_company_contexts = {}
+_bootstrap_db = db
+
+def bind_company(candidate):
+    global db
+    db = candidate
+    runtime.db = candidate
+    lab.db = candidate
+    lab.runtime.db = candidate
+
+
+def activate_company(candidate):
+    global _company_generation
+    import secrets
+    # One context per browser window. Requests bind their own DB under the engine lock.
+    _company_generation = secrets.token_urlsafe(32)
+    _company_contexts[_company_generation] = candidate
+    bind_company(candidate)
+    return _company_generation
+
+
+def serialized_company_request(fn):
+    @functools.wraps(fn)
+    def guarded(self):
+        global _company_generation
+        with _company_lock:
+            host = self.headers.get('Host', '')
+            origin = self.headers.get('Origin', '')
+            if host and urllib.parse.urlparse('http://' + host).hostname not in ('127.0.0.1', 'localhost', '::1'):
+                return self.send_json(403, {'error': 'Untrusted application host'})
+            if origin:
+                parsed_origin = urllib.parse.urlparse(origin)
+                if parsed_origin.scheme not in ('http', 'https') or parsed_origin.hostname not in ('127.0.0.1', 'localhost', '::1') or (host and parsed_origin.netloc != host):
+                    return self.send_json(403, {'error': 'Cross-origin company access is not allowed'})
+            context = self.headers.get("X-Company-Context")
+            if context:
+                if context not in _company_contexts:
+                    return self.send_json(409, {"error": "Company session is closed. Select the company again."})
+                bind_company(_company_contexts[context])
+                _company_generation = context
+            elif _company_contexts:
+                bind_company(_bootstrap_db)
+                _company_generation = None
+            return fn(self)
+    return guarded
+
+
 class TallyRequestHandler(BaseHTTPRequestHandler):
 
     def get_authenticated_user(self, query: Dict[str, Any]) -> Dict[str, Any]:
         """
         Extracts session token from Authorization: Bearer <token> or query parameter.
-        Validates token expiration and returns user profile. Defaults to Admin on local loopback.
+        Validates current account access. Local owner mode applies only to unsecured companies without supplied credentials.
         """
         auth_header = self.headers.get("Authorization", "")
         token = ""
@@ -95,11 +145,22 @@ class TallyRequestHandler(BaseHTTPRequestHandler):
 
         if token:
             session = db.validate_session(token)
-            if session:
-                return session
-
-        # Default localhost fallback identity
-        return {"username": "local_admin", "role": "Admin", "company_access": "ALL"}
+            if not session:
+                return None
+            access = session.get('company_access', 'ALL')
+            if access != 'ALL':
+                try:
+                    allowed = json.loads(access) if access.startswith('[') else access.split(',')
+                    if str(db.active_company_id) not in {str(c) for c in allowed}:
+                        return None
+                except (ValueError, TypeError):
+                    return None
+            return session
+        secured = db.get_company().get('security_enabled', False)
+        if secured or self.client_address[0] not in ('127.0.0.1', '::1'):
+            return None
+        # Explicit local, unsecured company mode. Invalid tokens never fall back to Admin.
+        return {"username": "local_owner", "role": "Admin", "company_access": "ALL"}
 
     def send_json(self, status: int, data: Any):
         body = json.dumps(data).encode("utf-8")
@@ -122,6 +183,7 @@ class TallyRequestHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(content)
 
+    @serialized_company_request
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
@@ -131,7 +193,9 @@ class TallyRequestHandler(BaseHTTPRequestHandler):
             return self.serve_static(os.path.join(STATIC_DIR, "index.html"), "text/html")
         elif path.startswith("/static/"):
             rel_path = path[len("/static/"):]
-            local_path = os.path.join(STATIC_DIR, rel_path)
+            local_path = os.path.realpath(os.path.join(STATIC_DIR, rel_path))
+            if os.path.commonpath([os.path.realpath(STATIC_DIR), local_path]) != os.path.realpath(STATIC_DIR):
+                return self.send_json(403, {'error': 'Invalid asset path'})
             if rel_path.endswith(".css"):
                 return self.serve_static(local_path, "text/css")
             elif rel_path.endswith(".js"):
@@ -146,8 +210,40 @@ class TallyRequestHandler(BaseHTTPRequestHandler):
         # Enforce RBAC permission for API routes
         user = self.get_authenticated_user(query)
         if path.startswith("/api/"):
+            if not user and path not in ('/api/storage', '/api/system/version'):
+                return self.send_json(401, {"error": "Sign in to the selected company"})
+            if not user:
+                user = {'role': 'Viewer'}
             if not db.check_rbac_permission(user["role"], path, "GET"):
                 return self.send_json(403, {"error": f"Forbidden: Role '{user['role']}' is not permitted to access {path}"})
+
+        if path == "/api/storage":
+            if self.client_address[0] not in ('127.0.0.1', '::1'):
+                return self.send_json(403, {'error': 'Company catalogue requires local access'})
+            try:
+                return self.send_json(200, company_store.catalogue(db.db_path, db.active_company_id))
+            except (OSError, ValueError) as exc:
+                return self.send_json(400, {"error": str(exc)})
+
+        if path == '/api/export/excel':
+            try:
+                from engine.data_exchange import export_workbook
+                content = export_workbook(db, query.get('kind', ['Ledgers'])[0])
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                self.send_header('Content-Disposition', 'attachment; filename="Company_Export.xlsx"')
+                self.send_header('Content-Length', str(len(content)))
+                self.end_headers()
+                self.wfile.write(content)
+                return
+            except Exception as exc:
+                return self.send_json(400, {'error': str(exc)})
+        try:
+            extra = get_route(path, query, db, company_store)
+            if extra is not None:
+                return self.send_json(*extra)
+        except Exception as exc:
+            return self.send_json(400, {'error': str(exc)})
 
         # API: Current Application State
         if path == "/api/state":
@@ -157,12 +253,13 @@ class TallyRequestHandler(BaseHTTPRequestHandler):
             godowns = db.get_godowns()
             uoms = db.get_uoms()
             groups = db.get_groups()
-            employees = db.get_employees()
+            employees = db.get_employees() if db.check_rbac_permission(user["role"], "/api/payroll/employees", "GET") else []
             cost_centres = db.get_cost_centres()
             menu_def = symbol_table.get_definition("Menu", "Gateway of Tally")
             menu_dict = menu_def.to_dict() if menu_def else {"items": []}
             return self.send_json(200, {
                 "company": company,
+                "company_context": str(_company_generation),
                 "ledgers": ledgers,
                 "stock_items": stock_items,
                 "godowns": godowns,
@@ -277,7 +374,8 @@ class TallyRequestHandler(BaseHTTPRequestHandler):
                         })
 
                 # 4. Vouchers match
-                for v in db.get_vouchers(100):
+                for row in db.conn.execute("SELECT id,voucher_type,voucher_number,narration,total_amount FROM voucher WHERE company_id=? AND (LOWER(voucher_number) LIKE ? OR LOWER(voucher_type) LIKE ? OR LOWER(COALESCE(narration,'')) LIKE ?) ORDER BY date DESC,id DESC LIMIT 100", (db.active_company_id, '%'+q+'%', '%'+q+'%', '%'+q+'%')):
+                    v = dict(row)
                     if q in v["voucher_number"].lower() or q in v["voucher_type"].lower() or q in v.get("narration", "").lower():
                         results.append({
                             "label": f"Voucher: {v['voucher_type']} #{v['voucher_number']} (₹{v['total_amount']:,.2f})",
@@ -678,6 +776,7 @@ class TallyRequestHandler(BaseHTTPRequestHandler):
         else:
             self.send_error(404, "Endpoint not found")
 
+    @serialized_company_request
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
@@ -699,9 +798,82 @@ class TallyRequestHandler(BaseHTTPRequestHandler):
 
         # Enforce RBAC permission for mutating POST actions (skip login)
         user = self.get_authenticated_user(query)
-        if path != "/api/auth/login":
+        if path not in ('/api/auth/login', '/api/storage/select'):
+            if not user:
+                return self.send_json(401, {"error": "Sign in to the selected company"})
             if not db.check_rbac_permission(user["role"], path, "POST"):
                 return self.send_json(403, {"error": f"Forbidden: Role '{user['role']}' is not permitted to perform POST on {path}"})
+
+        if path.startswith("/api/storage/"):
+            if path != "/api/storage/select" and user["role"] != "Admin":
+                return self.send_json(403, {"error": "Only Admin can manage company storage"})
+            # Storage changes are local desktop operations, never accepted from remote clients.
+            if self.client_address[0] not in ("127.0.0.1", "::1"):
+                return self.send_json(403, {"error": "Company storage requires local access"})
+            try:
+                if path == '/api/storage/native/inspect':
+                    from engine.native_tally import inspect
+                    return self.send_json(200, inspect(company_store.root, data.get('storage_key')))
+                if path == '/api/storage/native/read':
+                    from engine.native_records import read
+                    return self.send_json(200, read(company_store.root, data.get('storage_key'),
+                        kind=data.get('kind', 'masters'), offset=data.get('offset', 0),
+                        limit=data.get('limit', 50), search=data.get('search', ''),
+                        sequence=data.get('sequence'), source=data.get('source')))
+                if path == '/api/storage/native/links':
+                    from engine.native_links import read_link_matches
+                    return self.send_json(200, read_link_matches(company_store.root, data.get('storage_key'),
+                        data.get('voucher_guid'), limit=data.get('limit',50), offset=data.get('offset',0)))
+                if path == '/api/storage/native/directory':
+                    from engine.native_directory import read_directory
+                    return self.send_json(200, read_directory(company_store.root,data.get('storage_key')))
+                if path == '/api/storage/native/reference/verify':
+                    from engine.native_reference import verify_references
+                    return self.send_json(200, verify_references(company_store.root,data.get('storage_key')))
+                if path == '/api/storage/native/books':
+                    from engine.native_reference import verify_references
+                    return self.send_json(200, verify_references(company_store.root,data.get('storage_key'),include_books=True))
+                if path == '/api/storage/native/sales/preview':
+                    from engine.native_sales import read_sales_preview
+                    return self.send_json(200, read_sales_preview(company_store.root,data.get('storage_key'),data.get('sequence')))
+                if path == "/api/storage/path":
+                    company_store.set_path(data.get("data_path"))
+                elif path == "/api/storage/create":
+                    key = company_store.create(data)
+                    return self.send_json(201, {"storage_key": key})
+                elif path == "/api/storage/select":
+                    candidate = company_store.open(data.get("storage_key"))
+                    try:
+                        if candidate.get_company().get('security_enabled'):
+                            account = candidate.authenticate_user(data.get('username', ''), data.get('password', ''))
+                            if not account:
+                                candidate.close()
+                                return self.send_json(401, {'error': 'Company username and password required'})
+                            access = account.get('company_access', 'ALL')
+                            allowed = json.loads(access) if access.startswith('[') else access.split(',')
+                            if access != 'ALL' and str(candidate.active_company_id) not in {str(x) for x in allowed}:
+                                candidate.close()
+                                return self.send_json(403, {'error': 'Account cannot access this company'})
+                            token = candidate.create_session(account)
+                        else:
+                            token = ''
+                        activate_company(candidate)
+                    except Exception:
+                        candidate.close()
+                        raise
+                    return self.send_json(200, {"company_context": str(_company_generation), "token": token})
+                else:
+                    return self.send_json(404, {"error": "Unknown storage operation"})
+                return self.send_json(200, company_store.catalogue(db.db_path, db.active_company_id))
+            except Exception as exc:
+                return self.send_json(400, {"error": str(exc)})
+
+        try:
+            extra = post_route(path, data, db, company_store, user, contexts=_company_contexts)
+            if extra is not None:
+                return self.send_json(*extra)
+        except Exception as exc:
+            return self.send_json(400, {'error': str(exc)})
 
         # API: Validate TDL Code (Syntax checking with line numbers)
         if path == "/api/tdl/validate":
@@ -774,7 +946,7 @@ class TallyRequestHandler(BaseHTTPRequestHandler):
             if not entries:
                 return self.send_json(400, {"error": "No voucher entries provided"})
             try:
-                v_id = db.add_voucher(v_type, v_date, narration, entries, inv_items, bill_allocations, curr_sym, ex_rate)
+                v_id = db.add_voucher(v_type, v_date, narration, entries, inv_items, bill_allocations, curr_sym, ex_rate, gst_registration_id=data.get('gst_registration_id'))
                 return self.send_json(201, {"status": "success", "voucher_id": v_id})
             except Exception as e:
                 return self.send_json(400, {"error": str(e)})
@@ -838,7 +1010,7 @@ class TallyRequestHandler(BaseHTTPRequestHandler):
             month = data.get("month", "October 2026")
             pdate = data.get("date", "2026-10-31")
             try:
-                v_id = db.process_payroll_voucher(month, pdate)
+                v_id = db.process_payroll_voucher(month, pdate, expected_preview=data.get("preview_id"))
                 return self.send_json(201, {"status": "success", "voucher_id": v_id})
             except Exception as e:
                 return self.send_json(400, {"error": str(e)})
@@ -870,7 +1042,7 @@ class TallyRequestHandler(BaseHTTPRequestHandler):
         # API: Local Backup Creation
         elif path == "/api/backup/create":
             try:
-                bdir = os.path.join(DATA_DIR, "backups")
+                bdir = os.path.join(os.path.dirname(os.path.abspath(db.db_path)), "backups")
                 fpath = db.create_local_backup(backup_dir=bdir)
                 chk = ""
                 with open(fpath, "r", encoding="utf-8") as f:
@@ -1013,6 +1185,8 @@ class TallyRequestHandler(BaseHTTPRequestHandler):
 
         # PHASE 3 POST ENDPOINTS
         elif path == "/api/companies/create":
+            if os.path.basename(db.db_path) == "company.db":
+                return self.send_json(400, {"error": "Create a separate company using the company data folder chooser"})
             name = data.get("name", "").strip()
             if not name:
                 return self.send_json(400, {"error": "Company name is required"})
@@ -1038,6 +1212,8 @@ class TallyRequestHandler(BaseHTTPRequestHandler):
             return self.send_json(404, {"error": f"Company ID {cid} not found"})
 
         elif path == "/api/companies/consolidate":
+            if os.path.basename(db.db_path) == "company.db":
+                return self.send_json(400, {"error": "Consolidation across separate company files is not yet supported"})
             gname = data.get("group_name", "").strip()
             mids = data.get("member_company_ids", [])
             if not gname or not mids:
@@ -1074,6 +1250,12 @@ class TallyRequestHandler(BaseHTTPRequestHandler):
         elif path == "/api/companies/shut":
             cid = int(data.get("company_id", db.active_company_id))
             try:
+                if os.path.basename(db.db_path) == "company.db":
+                    context = self.headers.get('X-Company-Context')
+                    if context in _company_contexts:
+                        _company_contexts.pop(context).close()
+                    bind_company(_bootstrap_db)
+                    return self.send_json(200, {"status": "success", "active_company_id": None})
                 next_id = db.shut_company(cid)
                 return self.send_json(200, {"status": "success", "shut_company_id": cid, "active_company_id": next_id})
             except Exception as e:
@@ -1084,6 +1266,14 @@ class TallyRequestHandler(BaseHTTPRequestHandler):
             if not cid:
                 return self.send_json(400, {"error": "company_id required"})
             try:
+                if os.path.basename(db.db_path) == 'company.db':
+                    result = company_store.archive_company(db)
+                    path_to_close = os.path.realpath(db.db_path)
+                    for context, engine in list(_company_contexts.items()):
+                        if os.path.realpath(engine.db_path) == path_to_close:
+                            _company_contexts.pop(context).close()
+                    bind_company(_bootstrap_db)
+                    return self.send_json(200, {"status": "success", "message": "Company removed from the list; a recovery copy is retained.", **result})
                 db.delete_company(cid)
                 return self.send_json(200, {"status": "success", "deleted_company_id": cid})
             except Exception as e:
@@ -1094,6 +1284,8 @@ class TallyRequestHandler(BaseHTTPRequestHandler):
             sec = bool(data.get("security_enabled", False))
             pwd = data.get("vault_password", "")
             try:
+                if sec and db.conn.execute("SELECT COUNT(*) FROM user_account WHERE role='Admin' AND is_active=1").fetchone()[0] == 0:
+                    db.create_user(data.get('admin_username', ''), data.get('admin_password', ''), 'Admin')
                 db.update_company_security(cid, sec, pwd)
                 return self.send_json(200, {"status": "success"})
             except Exception as e:
@@ -1103,7 +1295,7 @@ class TallyRequestHandler(BaseHTTPRequestHandler):
         elif path == "/api/company/vault/export":
             cid = int(data.get("company_id", db.active_company_id))
             pwd = data.get("vault_password", "")
-            out_path = data.get("output_path", os.path.join(DATA_DIR, f"vault_export_company_{cid}.tve"))
+            out_path = data.get("output_path", os.path.join(os.path.dirname(os.path.abspath(db.db_path)), f"vault_export_company_{cid}.tve"))
             try:
                 res = db.export_authenticated_company_vault(cid, pwd, out_path)
                 return self.send_json(200, res)
@@ -1198,7 +1390,7 @@ class TallyRequestHandler(BaseHTTPRequestHandler):
 
         elif path == "/api/company/split_fy":
             sdate = data.get("split_date", "2026-10-01")
-            default_arch = os.path.join(DATA_DIR, "backups", "tally_archive_prior.db")
+            default_arch = os.path.join(os.path.dirname(os.path.abspath(db.db_path)), "backups", "tally_archive_prior.db")
             arch = data.get("archive_db_path", default_arch)
             try:
                 res = db.split_financial_year(sdate, arch)
@@ -1704,6 +1896,8 @@ def run(host: str = "127.0.0.1", port: int = 8080):
     print(f"  100% Fully Offline - Zero Internet Required")
     print(f"  URL: http://{host}:{port}")
     print(f"============================================================")
+    from engine.backup_scheduler import start
+    start(company_store, _company_lock)
     httpd.serve_forever()
 
 if __name__ == "__main__":

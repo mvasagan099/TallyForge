@@ -1,0 +1,2 @@
+# Only needed for AES-256-GCM archive export/import. Basic accounting has no external dependency.
+cryptography>=44
