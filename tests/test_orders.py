@@ -165,6 +165,81 @@ class OrderTests(unittest.TestCase):
             save_invoice(self.db, {'voucher_type': 'Debit Note', 'date': '2026-06-10', 'party_ledger': 'Supplier', 'purchase_ledger': 'Purchases',
                                    'items': [{'stock_item_name': 'Rice', 'qty': 1, 'rate': 50, 'order_voucher_id': order}]})
 
+    # delivery and receipt notes ------------------------------------------------------------------------------
+    def stock(self, item='Rice'):
+        return self.db.get_stock_item(item)['closing_qty']
+
+    def note(self, vtype='Delivery Note', qty=10, order=None, date='2026-05-05', rate=60):
+        party, book_key, book = ('Buyer', 'sales_ledger', 'Sales') if vtype == 'Delivery Note' else ('Supplier', 'purchase_ledger', 'Purchases')
+        line = {'stock_item_name': 'Rice', 'qty': qty, 'rate': rate}
+        if order:
+            line['order_voucher_id'] = order
+        return save_invoice(self.db, {'voucher_type': vtype, 'date': date, 'party_ledger': party, book_key: book, 'items': [line]})
+
+    def sale(self, qty, against, date='2026-05-10'):
+        return save_invoice(self.db, {'voucher_type': 'Sales', 'date': date, 'party_ledger': 'Buyer', 'sales_ledger': 'Sales',
+                                      'items': [{'stock_item_name': 'Rice', 'qty': qty, 'rate': 60, 'order_voucher_id': against}]})
+
+    def test_a_delivery_note_moves_stock_but_posts_nothing_and_a_receipt_note_brings_it_in(self):
+        self.db.add_voucher('Purchase', '2026-04-01', 'stock', [{'ledger_name': 'Supplier', 'entry_type': 'Cr', 'amount': 5000}, {'ledger_name': 'Purchases', 'entry_type': 'Dr', 'amount': 5000}],
+                            inventory_items=[{'stock_item_name': 'Rice', 'qty': 100, 'rate': 50, 'amount': 5000}])
+        note = self.note()['voucher_id']
+        v = self.db.get_voucher(note)
+        self.assertEqual((v['voucher_type'], v['is_optional'], self.stock()), ('Delivery Note', 1, 90.0))
+        self.assertEqual(self.db.get_ledger_closing_balance('Buyer')[0], 0)               # nothing posted to the party
+        self.assertEqual(self.db.get_financial_summary()['sales_total'], 0.0)
+        self.note('Receipt Note', qty=5)
+        self.assertEqual(self.stock(), 95.0)
+
+    def test_an_invoice_raised_against_a_delivery_note_does_not_move_stock_a_second_time(self):
+        note = self.note(qty=10)['voucher_id']
+        self.assertEqual(self.stock(), -10.0)
+        invoice = self.sale(6, note)['voucher_id']
+        self.assertEqual(self.stock(), -10.0)                                              # note 4 + invoice 6: still ten out
+        self.assertEqual(self.db.get_voucher(note)['inventory'][0]['qty'], 4.0)            # the note holds the undelivered balance
+        self.assertEqual(orders.order_lines(self.db, 'Delivery Note')[0]['pending_qty'], 4.0)
+        self.sale(4, note, date='2026-05-12')
+        self.assertEqual((self.stock(), self.db.get_voucher(note)['inventory'][0]['qty']), (-10.0, 0.0))
+        self.assertEqual(orders.order_lines(self.db, 'Delivery Note')[0]['pending_qty'], 0.0)
+        self.db.cancel_voucher(invoice)                                                    # its 6 go back to the note
+        self.assertEqual((self.stock(), self.db.get_voucher(note)['inventory'][0]['qty']), (-10.0, 6.0))      # still ten out: delivered on the note; the cancelled invoice's 6 are the note's again
+
+    def test_deleting_the_invoice_restores_the_note_and_over_invoicing_is_refused(self):
+        note = self.note(qty=10)['voucher_id']
+        invoice = self.sale(7, note)['voucher_id']
+        before = self.db.conn.execute('SELECT COUNT(*) FROM voucher').fetchone()[0]
+        with self.assertRaisesRegex(ValueError, 'Only 3 of .Rice. is pending'):
+            self.sale(4, note, date='2026-05-11')
+        self.assertEqual(self.db.conn.execute('SELECT COUNT(*) FROM voucher').fetchone()[0], before)
+        self.db.delete_voucher(invoice)
+        self.assertEqual((self.stock(), self.db.get_voucher(note)['inventory'][0]['qty']), (-10.0, 10.0))
+        receipt = self.note('Receipt Note', qty=5)['voucher_id']
+        with self.assertRaisesRegex(ValueError, 'cannot be allocated to a Receipt Note'):
+            self.sale(1, receipt)
+
+    def test_altering_an_invoice_cannot_drop_below_what_was_taken_from_the_note_and_altering_the_note_rebases_it(self):
+        note = self.note(qty=10)['voucher_id']
+        invoice = self.sale(6, note)['voucher_id']
+        entries = [{'ledger_name': 'Buyer', 'entry_type': 'Dr', 'amount': 240}, {'ledger_name': 'Sales', 'entry_type': 'Cr', 'amount': 240}]
+        with self.assertRaisesRegex(ValueError, 'cannot go below 6'):
+            self.db.alter_voucher(invoice, '2026-05-10', 'x', entries, inventory_items=[{'stock_item_name': 'Rice', 'qty': 4, 'rate': 60, 'amount': 240}])
+        self.assertEqual(self.db.get_voucher(invoice)['inventory'][0]['qty'], 6.0)         # refused, nothing changed
+        self.db.alter_voucher(note, '2026-05-05', 'x', [{'ledger_name': 'Buyer', 'entry_type': 'Dr', 'amount': 180}, {'ledger_name': 'Sales', 'entry_type': 'Cr', 'amount': 180}],
+                              inventory_items=[{'stock_item_name': 'Rice', 'qty': 3, 'rate': 60, 'amount': 180, 'direction': 'Out'}])
+        line = orders.order_lines(self.db, 'Delivery Note')[0]
+        self.assertEqual((line['ordered_qty'], line['delivered_qty'], line['pending_qty']), (9.0, 6.0, 3.0))   # 3 outstanding + 6 invoiced
+        self.assertEqual(self.stock(), -9.0)
+
+    def test_order_then_delivery_note_then_invoice_counts_the_goods_once(self):
+        order = save_invoice(self.db, {'voucher_type': 'Sales Order', 'date': '2026-05-01', 'party_ledger': 'Buyer', 'sales_ledger': 'Sales', 'reference_no': 'SO-9',
+                                       'items': [{'stock_item_name': 'Rice', 'qty': 10, 'rate': 60}]})['voucher_id']
+        note = self.note(qty=10, order=order)['voucher_id']
+        self.assertEqual(self.pending('Sales Order'), [])                                  # the delivery note fulfilled the order
+        self.sale(10, note)
+        self.assertEqual(self.stock(), -10.0)                                              # delivered once, not twice
+        self.assertEqual(self.db.get_ledger_closing_balance('Buyer')[0], 600)              # and billed once
+        self.assertEqual(orders.order_lines(self.db, 'Delivery Note')[0]['pending_qty'], 0.0)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -17,8 +17,11 @@ from engine.gst_entry import suggest_gst
 
 CENT = Decimal("0.01")
 ORDER_TYPES = orders.ORDER_TYPES
-SUPPORTED = ("Sales", "Purchase", "Credit Note", "Debit Note") + ORDER_TYPES
-ITEM_SIDE = {"Sales": "Cr", "Debit Note": "Cr", "Sales Order": "Cr", "Purchase": "Dr", "Credit Note": "Dr", "Purchase Order": "Dr"}
+NOTE_TYPES = orders.NOTE_TYPES
+NON_POSTING = ORDER_TYPES + NOTE_TYPES            # orders and delivery / receipt notes post nothing
+SUPPORTED = ("Sales", "Purchase", "Credit Note", "Debit Note") + ORDER_TYPES + NOTE_TYPES
+ITEM_SIDE = {"Sales": "Cr", "Debit Note": "Cr", "Sales Order": "Cr", "Purchase": "Dr", "Credit Note": "Dr", "Purchase Order": "Dr",
+             "Delivery Note": "Cr", "Receipt Note": "Dr"}
 
 
 def _money(value):
@@ -54,8 +57,9 @@ def build_invoice(db, data):
     out_types = db.STOCK_OUT_TYPES
     direction = "Out" if vtype in out_types else "In"
     is_order = vtype in ORDER_TYPES
-    if is_order and (data.get("charges") or data.get("gst") or data.get("round_off")):
-        raise ValueError("An order has item lines only: no charges, GST or round off")
+    non_posting = vtype in NON_POSTING
+    if non_posting and (data.get("charges") or data.get("gst") or data.get("round_off")):
+        raise ValueError(f"A {vtype} has item lines only: no charges, GST or round off")
 
     items, item_total = [], Decimal("0.00")
     for n, line in enumerate(raw_items, 1):
@@ -144,7 +148,7 @@ def build_invoice(db, data):
         if days:
             due = (datetime.date.fromisoformat(date) + datetime.timedelta(days=days)).isoformat()
     bills = []
-    maintains = None if is_order else db.conn.execute("SELECT maintain_bill_by_bill, group_name FROM ledger WHERE name = ?", (party,)).fetchone()
+    maintains = None if non_posting else db.conn.execute("SELECT maintain_bill_by_bill, group_name FROM ledger WHERE name = ?", (party,)).fetchone()
     groups = {r["name"]: dict(r) for r in db.conn.execute("SELECT name, parent FROM account_group")}
     # Only a debtor or creditor keeps bills (a cash party does not), and only when its ledger is set to maintain them.
     if maintains and maintains[0] and db._under_group(groups, maintains[1], ("Sundry Debtors", "Sundry Creditors")):
@@ -168,6 +172,7 @@ def save_invoice(db, data):
     built = build_invoice(db, data)
     # A discounted line is stored at its effective rate (net amount / quantity), so quantity x rate equals the amount posted.
     is_order = built["voucher_type"] in ORDER_TYPES
+    non_posting = built["voucher_type"] in NON_POSTING
     inventory = []
     for i in built["items"]:
         line = {"stock_item_name": i["stock_item_name"], "qty": i["qty"],
@@ -177,13 +182,16 @@ def save_invoice(db, data):
             line["direction"] = i["direction"]
         inventory.append(line)
     vid = db.add_voucher(built["voucher_type"], built["date"], data.get("narration", ""), built["entries"], inventory_items=inventory,
-                         bill_allocations=built["bill_allocations"] or None, voucher_number=built["voucher_number"], is_optional=is_order)
+                         bill_allocations=built["bill_allocations"] or None, voucher_number=built["voucher_number"], is_optional=non_posting)
     if is_order:
         orders.set_due_dates(db, vid, {i["stock_item_name"]: i["due_date"] for i in built["items"] if i["due_date"]})
         if not data.get("reference_no"):      # the order number defaults to the voucher number
             db.conn.execute("UPDATE voucher SET reference_no = ? WHERE id = ?", (built["voucher_number"], vid))
-    elif built["allocations"]:
-        orders.record_allocations(db, vid, built["allocations"])
+    else:
+        if built["voucher_type"] in NOTE_TYPES:
+            orders.ensure_note_original(db, vid)          # what the note carried, before invoices take it over
+        if built["allocations"]:
+            orders.record_allocations(db, vid, built["allocations"])
     ref = data.get("reference_no")
     if ref or data.get("vehicle_no"):
         db.conn.execute("UPDATE voucher SET reference_no = COALESCE(NULLIF(?, ''), reference_no), vehicle_no = COALESCE(NULLIF(?, ''), vehicle_no) WHERE id = ?",

@@ -2275,6 +2275,12 @@ class EnterpriseAccountingDB(ReliabilityMixin):
                             VALUES (?, ?, ?, ?, ?, ?, ?)
                         """, (voucher_id, e["ledger_name"], ref_type, ref, v_date, amount, e["entry_type"]))
 
+            from engine import orders as _orders
+            if voucher_type in _orders.NOTE_TYPES:
+                _orders.reset_note_after_alter(self, voucher_id)
+            _orders.assert_allocations_hold(self, voucher_id)
+            for note in _orders.notes_touched_by(self, voucher_id):
+                _orders.sync_note(self, note)
             from engine.gst_books import capture
             capture(self, voucher_id)
             self._log_voucher_version(self._voucher_snapshot(voucher_id), "ALTER", f"Altered voucher {v_num_str} to ₹{total_amt:,.2f}", user_name)
@@ -2312,7 +2318,11 @@ class EnterpriseAccountingDB(ReliabilityMixin):
         with self.conn:
             if not self._has_version_snapshot(voucher_id):
                 self._log_voucher_version(self._voucher_snapshot(voucher_id), "ORIGINAL", "State before cancellation")
+            from engine import orders as _orders
+            noted = _orders.notes_touched_by(self, voucher_id)
             self.conn.execute("UPDATE voucher SET is_cancelled = 1 WHERE id = ?", (voucher_id,))
+            for note in noted:                              # the quantity goes back to the delivery / receipt note
+                _orders.sync_note(self, note)
             self._log_voucher_version(self._voucher_snapshot(voucher_id), "CANCEL", f"Cancelled {row['voucher_type']} voucher {row['voucher_number']}")
         return True
 
@@ -2327,7 +2337,11 @@ class EnterpriseAccountingDB(ReliabilityMixin):
 
         with self.conn:
             deleted = self._voucher_snapshot(voucher_id)                # the content stays in the edit trail
+            from engine import orders as _orders
+            noted = _orders.notes_touched_by(self, voucher_id)
             self.conn.execute("DELETE FROM voucher WHERE id = ?", (voucher_id,))
+            for note in noted:
+                _orders.sync_note(self, note)
             self._log_voucher_version(deleted, "DELETE", f"Deleted {row['voucher_type']} voucher {row['voucher_number']}")
         return True
 

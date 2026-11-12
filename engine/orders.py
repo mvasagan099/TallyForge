@@ -11,8 +11,12 @@ and due date agree for every order (see the tests and the status notes).
 import datetime
 
 ORDER_TYPES = ("Sales Order", "Purchase Order")
-# the voucher types whose lines may be allocated to each kind of order
-FULFILS = {"Sales Order": ("Sales", "Delivery Note"), "Purchase Order": ("Purchase", "Receipt Note")}
+NOTE_TYPES = ("Delivery Note", "Receipt Note")
+TRACKED = ORDER_TYPES + NOTE_TYPES
+# the voucher types whose lines may be allocated to each kind of document: an order is fulfilled by a note or an invoice, and a
+# note (stock moved before the bill) is invoiced later by a sales / purchase invoice raised against it
+FULFILS = {"Sales Order": ("Sales", "Delivery Note"), "Purchase Order": ("Purchase", "Receipt Note"),
+           "Delivery Note": ("Sales",), "Receipt Note": ("Purchase",)}
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS order_line (
@@ -28,13 +32,24 @@ CREATE TABLE IF NOT EXISTS order_allocation (
     against_voucher_id INTEGER NOT NULL REFERENCES voucher(id) ON DELETE CASCADE,
     qty REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS note_original (
+    voucher_id INTEGER NOT NULL REFERENCES voucher(id) ON DELETE CASCADE,
+    stock_item_name TEXT NOT NULL,
+    qty REAL NOT NULL,
+    amount REAL NOT NULL,
+    PRIMARY KEY (voucher_id, stock_item_name)
+);
 CREATE INDEX IF NOT EXISTS idx_order_allocation_order ON order_allocation(order_voucher_id, stock_item_name);
 CREATE INDEX IF NOT EXISTS idx_order_allocation_against ON order_allocation(against_voucher_id);
 """
 
 
 def ensure_tables(db):
-    db.conn.executescript(SCHEMA)
+    # Plain statements, not executescript: executescript commits the open transaction first, which would make a refused
+    # alteration permanent when this runs in the middle of one.
+    for statement in SCHEMA.split(";"):
+        if statement.strip():
+            db.conn.execute(statement)
 
 
 def _party(db, groups, ledgers, voucher_id):
@@ -45,10 +60,25 @@ def _party(db, groups, ledgers, voucher_id):
     return first[0] if first else ""
 
 
+def ensure_note_original(db, note_voucher_id):
+    """Remember what a note originally carried (its stock lines shrink as invoices are raised against it)."""
+    ensure_tables(db)
+    for r in db.conn.execute("SELECT stock_item_name, SUM(qty), SUM(amount) FROM voucher_inventory WHERE voucher_id = ? GROUP BY stock_item_name", (note_voucher_id,)).fetchall():
+        db.conn.execute("INSERT OR IGNORE INTO note_original(voucher_id, stock_item_name, qty, amount) VALUES(?,?,?,?)", (note_voucher_id, r[0], r[1], r[2]))
+
+
+def _ordered(db, voucher_id, item):
+    ensure_tables(db)
+    row = db.conn.execute("SELECT qty FROM note_original WHERE voucher_id = ? AND stock_item_name = ?", (voucher_id, item)).fetchone()
+    if row:
+        return row[0]
+    return db.conn.execute("SELECT SUM(qty) FROM voucher_inventory WHERE voucher_id = ? AND stock_item_name = ?", (voucher_id, item)).fetchone()[0]
+
+
 def order_lines(db, order_type, party=None):
-    """Every line of every live order of this type with what has been allocated and what is pending."""
-    if order_type not in ORDER_TYPES:
-        raise ValueError("Order type must be 'Sales Order' or 'Purchase Order'")
+    """Every line of every live order (or delivery / receipt note) of this type with what has been allocated and what is pending."""
+    if order_type not in TRACKED:
+        raise ValueError("Order type must be a Sales Order, Purchase Order, Delivery Note or Receipt Note")
     ensure_tables(db)
     groups = {r["name"]: dict(r) for r in db.conn.execute("SELECT name, parent FROM account_group")}
     ledgers = {r["name"]: r["group_name"] for r in db.conn.execute("SELECT name, group_name FROM ledger")}
@@ -71,9 +101,10 @@ def order_lines(db, order_type, party=None):
         if party and seen_party[vid] != party:
             continue
         delivered = done.get((vid, r["stock_item_name"]), 0.0)
+        ordered = _ordered(db, vid, r["stock_item_name"]) if order_type in NOTE_TYPES else r["qty"]
         out.append({"voucher_id": vid, "date": r["date"], "voucher_number": r["voucher_number"], "order_no": r["reference_no"] or r["voucher_number"],
-                    "party": seen_party[vid], "stock_item_name": r["stock_item_name"], "unit": r["uom_symbol"] or "", "ordered_qty": r["qty"],
-                    "delivered_qty": delivered, "pending_qty": round(r["qty"] - delivered, 6), "rate": r["rate"], "amount": r["amount"],
+                    "party": seen_party[vid], "stock_item_name": r["stock_item_name"], "unit": r["uom_symbol"] or "", "ordered_qty": ordered,
+                    "delivered_qty": delivered, "pending_qty": round(ordered - delivered, 6), "rate": r["rate"], "amount": r["amount"],
                     "due_date": r["due_date"] or ""})
     return out
 
@@ -111,6 +142,55 @@ def set_due_dates(db, order_voucher_id, dues):
         db.conn.execute("INSERT OR REPLACE INTO order_line(voucher_id, stock_item_name, due_date) VALUES(?,?,?)", (order_voucher_id, item, due or None))
 
 
+def sync_note(db, note_voucher_id):
+    """Set a note's stock lines to what it carried less what invoices raised against it have taken over, so stock is never counted
+    twice: the note holds the undelivered / unreceived balance and the invoices hold the rest."""
+    ensure_tables(db)
+    ensure_note_original(db, note_voucher_id)
+    for item, original, amount in db.conn.execute("SELECT stock_item_name, qty, amount FROM note_original WHERE voucher_id = ?", (note_voucher_id,)).fetchall():
+        lines = db.conn.execute("SELECT id FROM voucher_inventory WHERE voucher_id = ? AND stock_item_name = ? ORDER BY id", (note_voucher_id, item)).fetchall()
+        if len(lines) != 1:
+            continue                                    # a note with the same item on several lines is left as it is
+        taken = db.conn.execute(
+            """SELECT COALESCE(SUM(a.qty), 0) FROM order_allocation a JOIN voucher av ON av.id = a.against_voucher_id
+               WHERE a.order_voucher_id = ? AND a.stock_item_name = ? AND av.is_cancelled = 0""", (note_voucher_id, item)).fetchone()[0]
+        remaining = max(0.0, original - taken)
+        db.conn.execute("UPDATE voucher_inventory SET qty = ?, amount = ? WHERE id = ?",
+                        (remaining, round(amount * remaining / original, 2) if original else 0.0, lines[0][0]))
+
+
+def reset_note_after_alter(db, note_voucher_id):
+    """A note shows what is still undelivered; when someone alters it, what they typed is the new remaining quantity, so the
+    original is that plus what invoices already took."""
+    ensure_tables(db)
+    db.conn.execute("DELETE FROM note_original WHERE voucher_id = ?", (note_voucher_id,))
+    for item, qty, amount in db.conn.execute("SELECT stock_item_name, SUM(qty), SUM(amount) FROM voucher_inventory WHERE voucher_id = ? GROUP BY stock_item_name", (note_voucher_id,)).fetchall():
+        taken = db.conn.execute(
+            """SELECT COALESCE(SUM(a.qty), 0) FROM order_allocation a JOIN voucher av ON av.id = a.against_voucher_id
+               WHERE a.order_voucher_id = ? AND a.stock_item_name = ? AND av.is_cancelled = 0""", (note_voucher_id, item)).fetchone()[0]
+        original = qty + taken
+        db.conn.execute("INSERT INTO note_original(voucher_id, stock_item_name, qty, amount) VALUES(?,?,?,?)",
+                        (note_voucher_id, item, original, round(amount * original / qty, 2) if qty else amount))
+
+
+def notes_touched_by(db, voucher_id):
+    """The delivery / receipt notes this voucher has allocations against."""
+    ensure_tables(db)
+    return [r[0] for r in db.conn.execute(
+        "SELECT DISTINCT a.order_voucher_id FROM order_allocation a JOIN voucher n ON n.id = a.order_voucher_id WHERE a.against_voucher_id = ? AND n.voucher_type IN ('Delivery Note','Receipt Note')",
+        (voucher_id,))]
+
+
+def assert_allocations_hold(db, voucher_id):
+    """An altered voucher must still carry at least what has been allocated from it."""
+    ensure_tables(db)
+    for item, allocated in db.conn.execute(
+            "SELECT stock_item_name, SUM(qty) FROM order_allocation WHERE against_voucher_id = ? GROUP BY stock_item_name", (voucher_id,)).fetchall():
+        carried = db.conn.execute("SELECT COALESCE(SUM(qty), 0) FROM voucher_inventory WHERE voucher_id = ? AND stock_item_name = ?", (voucher_id, item)).fetchone()[0]
+        if carried + 1e-9 < allocated:
+            raise ValueError(f"'{item}' cannot go below {allocated:g}: that much is allocated to orders or notes")
+
+
 def check_allocations(db, against_type, lines, allocations, against_voucher_id=None):
     """Validate allocations without writing. ``lines`` = {item: quantity on the fulfilling voucher}. Returns the cleaned list.
     A line cannot be over-delivered, the voucher type must fulfil the order, and the item must be on both documents. Quantities
@@ -121,7 +201,7 @@ def check_allocations(db, against_type, lines, allocations, against_voucher_id=N
         if qty <= 0:
             continue
         order = db.conn.execute("SELECT voucher_type, is_cancelled FROM voucher WHERE id = ?", (a.get("order_voucher_id"),)).fetchone()
-        if not order or order[0] not in ORDER_TYPES or order[1]:
+        if not order or order[0] not in TRACKED or order[1]:
             raise ValueError("Order not found")
         if against_type not in FULFILS[order[0]]:
             raise ValueError(f"A {against_type} cannot be allocated to a {order[0]}")
@@ -131,7 +211,9 @@ def check_allocations(db, against_type, lines, allocations, against_voucher_id=N
         used[item] = used.get(item, 0.0) + qty
         if used[item] > lines[item] + 1e-9:
             raise ValueError(f"More of '{item}' is allocated to orders than the {against_type} carries")
-        ordered = db.conn.execute("SELECT SUM(qty) FROM voucher_inventory WHERE voucher_id = ? AND stock_item_name = ?", (a["order_voucher_id"], item)).fetchone()[0]
+        if order[0] in NOTE_TYPES:
+            ensure_note_original(db, a["order_voucher_id"])
+        ordered = _ordered(db, a["order_voucher_id"], item)
         if ordered is None:
             raise ValueError(f"'{item}' is not on that order")
         taken = db.conn.execute(
@@ -154,8 +236,12 @@ def record_allocations(db, against_voucher_id, allocations):
     lines = {r[0]: r[1] for r in db.conn.execute(
         "SELECT stock_item_name, SUM(qty) FROM voucher_inventory WHERE voucher_id = ? GROUP BY stock_item_name", (against_voucher_id,))}
     cleaned = check_allocations(db, against[0], lines, allocations, against_voucher_id)
+    touched = set(notes_touched_by(db, against_voucher_id))
     db.conn.execute("DELETE FROM order_allocation WHERE against_voucher_id = ?", (against_voucher_id,))
     for a in cleaned:
         db.conn.execute("INSERT INTO order_allocation(order_voucher_id, stock_item_name, against_voucher_id, qty) VALUES(?,?,?,?)",
                         (a["order_voucher_id"], a["stock_item_name"], against_voucher_id, a["qty"]))
+    touched |= set(notes_touched_by(db, against_voucher_id))
+    for note in touched:
+        sync_note(db, note)
     db.conn.commit()
