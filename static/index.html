@@ -591,6 +591,43 @@
                     </div>
 
                     <!-- STANDARD VOUCHER MODE -->
+                    <div id="vch-invoice-mode" style="display:none; flex-direction:column; gap:10px;">
+                        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap:8px;">
+                            <label style="font-size:0.72rem; color:var(--text-muted);">Party A/c <select id="inv-party" class="tally-input" style="width:100%;" onchange="invoicePartyChanged()"></select></label>
+                            <label style="font-size:0.72rem; color:var(--text-muted);"><span id="inv-book-label">Sales ledger</span> <select id="inv-book" class="tally-input" style="width:100%;" onchange="invoiceRecalcSoon()"></select></label>
+                            <label style="font-size:0.72rem; color:var(--text-muted);" id="inv-ref-label">Reference no. <input id="inv-reference" class="tally-input" style="width:100%;"></label>
+                            <label style="font-size:0.72rem; color:var(--text-muted);">Order ref. <input id="inv-order" class="tally-input" style="width:100%;"></label>
+                            <label style="font-size:0.72rem; color:var(--text-muted);">Place of supply <input id="inv-pos" class="tally-input" style="width:100%;" placeholder="state (blank = party's state)" onchange="invoiceRecalcSoon()"></label>
+                            <label style="font-size:0.72rem; color:var(--text-muted);">Due date <input id="inv-due" type="date" class="tally-input" style="width:100%;"></label>
+                        </div>
+                        <div id="inv-party-info" style="font-size:0.75rem; color:var(--text-muted);"></div>
+                        <table class="tally-table" style="width:100%; font-size:0.8rem;">
+                            <thead><tr><th>Item</th><th>Godown</th><th style="width:90px;">Qty</th><th style="width:100px;">Rate</th><th style="width:70px;">Disc %</th><th style="width:120px;">Amount</th><th style="width:30px;"></th></tr></thead>
+                            <tbody id="inv-items-body"></tbody>
+                        </table>
+                        <div><button class="btn-tally-primary" onclick="invoiceAddRow()" style="font-size:0.75rem; padding:3px 10px; background:var(--surface-hover); color:var(--text-primary); border:1px solid var(--border-color);">+ Add item</button></div>
+                        <table class="tally-table" style="width:100%; font-size:0.8rem;">
+                            <thead><tr><th>Additional ledger (freight, discount ...)</th><th style="width:110px;">Amount</th><th style="width:80px;">% of items</th><th style="width:80px;">Side</th><th style="width:30px;"></th></tr></thead>
+                            <tbody id="inv-charges-body"></tbody>
+                        </table>
+                        <div><button class="btn-tally-primary" onclick="invoiceAddCharge()" style="font-size:0.75rem; padding:3px 10px; background:var(--surface-hover); color:var(--text-primary); border:1px solid var(--border-color);">+ Add ledger</button></div>
+                        <div style="display:flex; gap:18px; flex-wrap:wrap; font-size:0.8rem;">
+                            <label><input type="checkbox" id="inv-gst" onchange="invoiceRecalcSoon()"> Add GST (CGST + SGST, or IGST by place of supply)</label>
+                            <label><input type="checkbox" id="inv-round" onchange="invoiceRecalcSoon()"> Round off to the rupee</label>
+                        </div>
+                        <details><summary style="font-size:0.78rem; cursor:pointer;">Dispatch and consignee details</summary>
+                            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap:8px; margin-top:6px;">
+                                <label style="font-size:0.72rem; color:var(--text-muted);">Dispatched through <input id="inv-shipped" class="tally-input" style="width:100%;"></label>
+                                <label style="font-size:0.72rem; color:var(--text-muted);">Destination <input id="inv-destination" class="tally-input" style="width:100%;"></label>
+                                <label style="font-size:0.72rem; color:var(--text-muted);">Vehicle no. <input id="inv-vehicle" class="tally-input" style="width:100%;"></label>
+                                <label style="font-size:0.72rem; color:var(--text-muted);">Consignee <input id="inv-consignee" class="tally-input" style="width:100%;"></label>
+                            </div>
+                        </details>
+                        <label style="font-size:0.72rem; color:var(--text-muted);">Narration <textarea id="inv-narration" class="tally-input" rows="2" style="width:100%;"></textarea></label>
+                        <div id="inv-totals" style="border-top:1px solid var(--border-color); padding-top:8px; font-size:0.85rem;"></div>
+                        <div id="inv-messages" style="color:var(--accent-danger); font-size:0.8rem; min-height:1.2em;"></div>
+                    </div>
+
                     <div id="vch-standard-mode">
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
                             <div class="voucher-field-group">

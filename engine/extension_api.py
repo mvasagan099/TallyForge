@@ -80,6 +80,14 @@ def post_route(path, data, db, store, user, contexts=None):
         return 200, save_input(db,data)
     if path.startswith('/api/company/consolidation/') and user['role'] != 'Admin':
         return 403, {'error': 'Administrator access required for group reporting'}
+    if path == '/api/invoices/compute':                  # a preview: nothing is saved
+        from engine.invoice_entry import build_invoice
+        return 200, build_invoice(db, data)
+    if path == '/api/invoices/save':
+        if user.get('role') == 'Viewer':
+            return 403, {'error': 'A viewer cannot enter vouchers'}
+        from engine.invoice_entry import save_invoice
+        return 201, save_invoice(db, data)
     if path == '/api/gst/suggest':
         from engine.gst_entry import suggest_gst
         return 200, suggest_gst(db, data.get('voucher_type', ''), data.get('party_ledger'), data.get('items'),
