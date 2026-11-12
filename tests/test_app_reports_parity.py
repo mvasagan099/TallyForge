@@ -162,6 +162,36 @@ class ReportParityTests(unittest.TestCase):
         self.assertEqual(ratios['current_ratio'], 5.0)
         self.assertEqual({r['name'] for r in self.db.get_cash_bank_summary()}, {'Cash', 'Drawer'})
 
+    def test_group_summary_lists_groups_with_debit_and_credit_columns(self):
+        self.db.add_ledger('Owner', 'Capital Account')
+        self.db.add_ledger('Rent', 'Indirect Expenses')
+        self.db.add_group('Petty Cash', 'Cash-in-Hand', is_revenue=False)
+        self.db.add_ledger('Drawer', 'Petty Cash')
+        self.journal('Cash', 'Owner', 1000)
+        self.journal('Rent', 'Cash', 40)
+        self.journal('Drawer', 'Cash', 100)
+        top = {r['name']: (r['debit'], r['credit']) for r in self.db.get_group_summary()['rows']}
+        self.assertEqual(top['Capital Account'], (0.0, 1000.0))
+        self.assertEqual(top['Current Assets'], (960.0, 0.0))        # cash 860 + sub-group Petty Cash 100
+        self.assertEqual(top['Indirect Expenses'], (40.0, 0.0))
+        summary = self.db.get_group_summary()
+        self.assertEqual(summary['total_debit'], summary['total_credit'])
+        self.assertEqual({r['name']: r['debit'] for r in self.db.get_group_summary('Current Assets')['rows']}['Cash-in-Hand'], 960.0)
+        inside = {r['name']: (r['kind'], r['debit']) for r in self.db.get_group_summary('Cash-in-Hand')['rows']}
+        self.assertEqual(inside, {'Petty Cash': ('group', 100.0), 'Cash': ('ledger', 860.0)})
+        with self.assertRaises(ValueError):
+            self.db.get_group_summary('No such group')
+
+    def test_day_book_lists_every_voucher_of_a_period_not_just_the_latest_hundred(self):
+        for i in range(130):
+            self.journal('Cash', 'Cash', 1, date='2026-04-05')
+        default = self.db.get_day_book()
+        self.assertEqual((default['total'], len(default['vouchers'])), (130, 100))
+        period = self.db.get_day_book('2026-04-01', '2026-04-30')
+        self.assertEqual((period['total'], len(period['vouchers'])), (130, 130))
+        self.assertEqual(self.db.get_day_book('2026-05-01', '2026-05-31')['vouchers'], [])
+        self.assertIn('Cash', period['vouchers'][0]['particulars'])
+
     def test_outstanding_bills_are_classified_by_balance_side_like_tallyprime(self):
         self.db.add_ledger('Buyer', 'Sundry Debtors')
         self.db.add_ledger('Supplier', 'Sundry Creditors')

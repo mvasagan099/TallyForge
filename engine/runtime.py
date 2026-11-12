@@ -976,6 +976,24 @@ class TDLRuntime:
             ]})
             return {"report": report_name, "title": "Trial Balance", "parts": [{"name": "TBPart", "lines": lines}], "company": company}
 
+        # Group Summary (top level, or a chosen group's sub-groups and ledgers)
+        elif "groupsummary" in name_lower:
+            summary = self.db.get_group_summary(kwargs.get("group") or None)
+            lines = [{"name": "Header", "fields": [
+                {"name": "Particulars", "display_value": "Particulars" if not summary["group"] else f"Particulars ({summary['group']})", "width": 50, "align": "left"},
+                {"name": "Debit", "display_value": "Debit (₹)", "width": 18, "align": "right"},
+                {"name": "Credit", "display_value": "Credit (₹)", "width": 18, "align": "right"}]}]
+            for row in summary["rows"]:
+                lines.append({"name": "Row", "fields": [
+                    {"name": "Particulars", "display_value": row["name"], "group": row["name"] if row["kind"] == "group" else None, "width": 50, "align": "left"},
+                    {"name": "Debit", "display_value": f"{row['debit']:,.2f}" if row["debit"] else "-", "width": 18, "align": "right"},
+                    {"name": "Credit", "display_value": f"{row['credit']:,.2f}" if row["credit"] else "-", "width": 18, "align": "right"}]})
+            lines.append({"name": "Total", "fields": [
+                {"name": "Total", "display_value": "Grand Total", "width": 50, "align": "left"},
+                {"name": "Debit", "display_value": f"{summary['total_debit']:,.2f}", "width": 18, "align": "right"},
+                {"name": "Credit", "display_value": f"{summary['total_credit']:,.2f}", "width": 18, "align": "right"}]})
+            return {"report": report_name, "title": "Group Summary", "parts": [{"name": "GSPart", "lines": lines}], "company": company}
+
         # 17. Funds Flow Statement
         elif "fundsflow" in name_lower or "funds" in name_lower:
             ff = self.db.get_funds_flow_statement()
@@ -1615,7 +1633,8 @@ class TDLRuntime:
         # 25. Day Book (Default)
         from_date = kwargs.get("from_date")
         to_date = kwargs.get("to_date")
-        vouchers = self.db.get_vouchers(from_date=from_date, to_date=to_date)
+        book = self.db.get_day_book(from_date=from_date, to_date=to_date)
+        vouchers = book["vouchers"]
         lines = [
             {"name": "Header", "fields": [
                 {"name": "Date", "display_value": "Date", "width": 14, "align": "left"},
@@ -1627,7 +1646,7 @@ class TDLRuntime:
             ]}
         ]
         for v in vouchers:
-            particulars = ", ".join(e["ledger_name"] for e in v.get("entries", []))
+            particulars = v.get("particulars") or ""
             lines.append({"name": "Row", "voucher_id": v.get("id"), "fields": [
                 {"name": "Date", "display_value": v["date"], "width": 14, "align": "left"},
                 {"name": "Particulars", "display_value": particulars[:26], "width": 26, "align": "left"},
@@ -1636,4 +1655,7 @@ class TDLRuntime:
                 {"name": "Amount", "display_value": f"{v['total_amount']:,.2f}", "width": 16, "align": "right"},
                 {"name": "Action", "display_value": f"[Alter #{v.get('id', '')}]", "voucher_id": v.get("id"), "width": 14, "align": "center"}
             ]})
+        if book["total"] > len(vouchers):
+            lines.append({"name": "Total", "fields": [
+                {"name": "More", "display_value": f"Showing {len(vouchers):,} of {book['total']:,} vouchers - choose a period to see the rest", "width": 100, "align": "left"}]})
         return {"report": report_name, "title": "Day Book", "parts": [{"name": "DBPart", "lines": lines}], "company": company}

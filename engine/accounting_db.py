@@ -2144,6 +2144,27 @@ class EnterpriseAccountingDB(ReliabilityMixin):
             v["bills"] = [dict(r) for r in cursor.fetchall()]
         return vouchers
 
+    DAY_BOOK_DEFAULT = 100
+    DAY_BOOK_MAX = 5000
+
+    def get_day_book(self, from_date: Optional[str] = None, to_date: Optional[str] = None) -> Dict[str, Any]:
+        """Day Book rows (newest first) in one query. Without a period only the latest 100 are listed; with one, every
+        voucher in it up to 5,000 (it used to stop at 100 even for a chosen period). ``total`` is the full count."""
+        where, params = "v.is_cancelled = 0", []
+        if from_date:
+            where += " AND v.date >= ?"
+            params.append(from_date)
+        if to_date:
+            where += " AND v.date <= ?"
+            params.append(to_date)
+        total = self.conn.execute(f"SELECT COUNT(*) FROM voucher v WHERE {where}", params).fetchone()[0]
+        limit = self.DAY_BOOK_MAX if (from_date or to_date) else self.DAY_BOOK_DEFAULT
+        rows = self.conn.execute(
+            f"""SELECT v.id, v.date, v.voucher_type, v.voucher_number, v.total_amount,
+                       (SELECT GROUP_CONCAT(ledger_name, ', ') FROM voucher_entry e WHERE e.voucher_id = v.id) AS particulars
+                FROM voucher v WHERE {where} ORDER BY v.date DESC, v.id DESC LIMIT ?""", params + [limit]).fetchall()
+        return {"vouchers": [dict(r) for r in rows], "total": total, "limit": limit}
+
     def get_voucher(self, voucher_id: int) -> Optional[Dict[str, Any]]:
         """
         Retrieves a single voucher by ID with all debit/credit entries, inventory items, and bill allocations.
@@ -2975,6 +2996,38 @@ class EnterpriseAccountingDB(ReliabilityMixin):
                 "assets": [{"name": r["name"], "amount": float(r["amount"])} for r in assets],
                 "total_liabilities": float(sum((r["amount"] for r in liabilities), Decimal("0.00"))),
                 "total_assets": float(sum((r["amount"] for r in assets), Decimal("0.00")))}
+
+    def get_group_summary(self, group: Optional[str] = None) -> Dict[str, Any]:
+        """Group Summary like TallyPrime's: for the top level (or the chosen group) each sub-group and ledger with its
+        closing debit and credit columns (a group's debit column adds its debit-balance ledgers, the credit column its
+        credit-balance ones). Checked against TallyPrime's report on a real company: every top-level group agrees."""
+        ungrouped = "Primary (ungrouped ledgers)"
+        rows_g = self.conn.execute("SELECT name, parent FROM account_group ORDER BY rowid").fetchall()
+        groups = {r["name"]: dict(r) for r in rows_g}
+        if group is not None and group not in groups:
+            raise ValueError("Unknown group")
+        balances = []
+        for l in self.get_ledgers():
+            bal, side = self.get_ledger_closing_balance(l["name"])
+            balances.append((l["name"], l["group_name"], bal, side))
+        def sums(items):
+            dr = sum((b for _, _, b, sd in items if sd == "Dr"), Decimal("0.00"))
+            cr = sum((b for _, _, b, sd in items if sd == "Cr"), Decimal("0.00"))
+            return dr, cr
+        parent = group
+        children = [r["name"] for r in rows_g if r["name"] != ungrouped and
+                    ((r["parent"] in (None, "Primary")) if parent is None else r["parent"] == parent)]
+        out = []
+        for g in children:
+            dr, cr = sums([x for x in balances if self._under_group(groups, x[1], (g,))])
+            out.append({"name": g, "kind": "group", "debit": float(dr), "credit": float(cr)})
+        direct = [x for x in balances if (x[1] == parent if parent is not None else x[1] == ungrouped)]
+        for name, _, bal, side in direct:
+            if bal:
+                out.append({"name": name, "kind": "ledger", "debit": float(bal) if side == "Dr" else 0.0,
+                            "credit": float(bal) if side == "Cr" else 0.0})
+        return {"group": group, "rows": out,
+                "total_debit": round(sum(r["debit"] for r in out), 2), "total_credit": round(sum(r["credit"] for r in out), 2)}
 
     def get_ratio_analysis(self) -> Dict[str, Any]:
         fin = self.get_financial_summary()

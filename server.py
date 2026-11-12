@@ -293,6 +293,8 @@ class TallyRequestHandler(BaseHTTPRequestHandler):
             kwargs = {}
             if "ledger" in query:
                 kwargs["ledger"] = query["ledger"][0]
+            if "group" in query:
+                kwargs["group"] = query["group"][0]
             if "from_date" in query:
                 kwargs["from_date"] = query["from_date"][0]
             if "to_date" in query:
