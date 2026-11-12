@@ -388,6 +388,15 @@
                                 <ul class="gateway-menu-list">
                                     <li class="gateway-menu-item" data-action="Display" data-target="BalanceSheet"><span>Balance <span class="hotkey">S</span>heet</span></li>
                                     <li class="gateway-menu-item" data-action="Display" data-target="ProfitAndLoss"><span><span class="hotkey">P</span>rofit &amp; Loss A/c</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="GroupSummary"><span>Group Summary</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="SalesRegister"><span>Sales Register</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="PurchaseRegister"><span>Purchase Register</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="PaymentRegister"><span>Payment Register</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="ReceiptRegister"><span>Receipt Register</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="JournalRegister"><span>Journal Register</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="ContraRegister"><span>Contra Register</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="CreditNoteRegister"><span>Credit Note Register</span></li>
+                                    <li class="gateway-menu-item" data-action="Display" data-target="DebitNoteRegister"><span>Debit Note Register</span></li>
                                     <li class="gateway-menu-item" data-action="Display" data-target="StockSummary"><span>Stoc<span class="hotkey">k</span> Summary</span></li>
                                     <li class="gateway-menu-item" data-action="Display" data-target="OutstandingReceivables"><span>Bills <span class="hotkey">O</span>utstanding (Receivables)</span></li>
                                     <li class="gateway-menu-item" data-action="Display" data-target="OutstandingPayables"><span>Bills Pa<span class="hotkey">y</span>able (Ageing)</span></li>
@@ -663,7 +672,7 @@
                             <div style="display:flex; gap:6px;">
                                 <button class="btn-tally-primary" onclick="addMultilineRow()" style="font-size:0.75rem; padding:3px 10px; background:var(--accent-primary);">+ Add Line</button>
                                 <button class="btn-tally-primary" onclick="autoBalanceMultiline()" style="font-size:0.75rem; padding:3px 10px; background:var(--accent-secondary);">Auto-Balance</button>
-                                <button class="btn-tally-primary" onclick="addGSTLinesToMultiline()" style="font-size:0.75rem; padding:3px 10px; background:var(--surface-hover); color:var(--text-primary); border:1px solid var(--border-color);">Add 18% GST (CGST+SGST)</button>
+                                <button class="btn-tally-primary" onclick="addGSTLinesToMultiline()" style="font-size:0.75rem; padding:3px 10px; background:var(--surface-hover); color:var(--text-primary); border:1px solid var(--border-color);">Add GST (CGST + SGST or IGST)</button>
                             </div>
                         </div>
                         <div style="max-height:240px; overflow-y:auto; border:1px solid var(--border-color); border-radius:var(--radius-sm);">
@@ -1098,7 +1107,8 @@
             <div style="padding:8px 14px; background:var(--surface-subtle); display:flex; gap:10px; align-items:center; border-bottom:1px solid var(--border-color);">
                 <label style="font-size:0.8rem; font-weight:700;">Document:</label>
                 <select id="print-doc-type" class="tally-input" onchange="renderPrintPreviewDocument()">
-                    <option value="invoice">B2B Tax Invoice</option>
+                    <option value="voucher">Voucher / Invoice (TallyPrime layout)</option>
+                    <option value="invoice">B2B Tax Invoice (e-invoice format)</option>
                     <option value="payslip">Monthly Payslip</option>
                     <option value="payment_advice">Payment Advice Slip</option>
                 </select>

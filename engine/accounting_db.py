@@ -1584,6 +1584,44 @@ class EnterpriseAccountingDB(ReliabilityMixin):
             itm.update(summary)
         return items
 
+    def get_stock_item_monthly(self, item_name: str, from_date: Optional[str] = None, to_date: Optional[str] = None) -> Dict[str, Any]:
+        """Stock Item Monthly Summary: per month the inwards, outwards and closing quantity and value on the same costing as the
+        closing value (financial-year weighted average). Outwards value is what makes the columns reconcile:
+        opening + inwards - outwards = closing. Defaults to the financial year of the item's last voucher."""
+        row = self.conn.execute("SELECT opening_qty, opening_value, uom_symbol FROM stock_item WHERE name = ?", (item_name,)).fetchone()
+        if not row:
+            raise ValueError("Stock item not found")
+        op_qty, op_val = to_qty_dec(row["opening_qty"]), to_dec(row["opening_value"])
+        series = {e["month"]: e for e in self._stock_costing(item_name, op_qty, op_val)}
+        if not from_date or not to_date:
+            last_date = self.conn.execute("SELECT MAX(date) FROM voucher").fetchone()[0] or datetime.date.today().isoformat()
+            fy_from, fy_to = self._financial_year(last_date)
+            from_date, to_date = from_date or fy_from, to_date or fy_to
+        zero = Decimal("0")
+        qty, value = op_qty, (op_val if op_qty > 0 else zero)
+        for key in sorted(k for k in series if k < from_date[:7]):         # state at the start of the period
+            qty, value = series[key]["closing_qty"], series[key]["closing_value"]
+        opening = (qty, value)
+        months = []
+        y, m = int(from_date[:4]), int(from_date[5:7])
+        while f"{y:04d}-{m:02d}" <= to_date[:7]:
+            key = f"{y:04d}-{m:02d}"
+            entry = series.get(key)
+            if entry:
+                out_val = value + entry["in_value"] - entry["closing_value"]
+                months.append({"month": key, "in_qty": float(entry["in_qty"]), "in_value": float(entry["in_value"]),
+                               "out_qty": float(entry["out_qty"]), "out_value": float(out_val.quantize(Decimal("0.01"))),
+                               "closing_qty": float(entry["closing_qty"]), "closing_value": float(entry["closing_value"])})
+                qty, value = entry["closing_qty"], entry["closing_value"]
+            else:
+                months.append({"month": key, "in_qty": 0.0, "in_value": 0.0, "out_qty": 0.0, "out_value": 0.0,
+                               "closing_qty": float(qty), "closing_value": float(value)})
+            m += 1
+            if m > 12:
+                y, m = y + 1, 1
+        return {"item": item_name, "unit": row["uom_symbol"], "from": from_date, "to": to_date,
+                "opening_qty": float(opening[0]), "opening_value": float(opening[1]), "months": months}
+
     def get_stock_item(self, name: str) -> Optional[Dict[str, Any]]:
         cursor = self.conn.cursor()
         cursor.execute("SELECT * FROM stock_item WHERE name = ?", (name,))
@@ -1611,64 +1649,47 @@ class EnterpriseAccountingDB(ReliabilityMixin):
             self._log_edit("StockItem", name, "CREATE", f"Created stock item {name} under {group_name}")
         return True
 
-    def _stock_walk(self, item_name, op_qty, op_val):
-        """Walk an item's movements in date order the way TallyPrime's Average Cost does.
+    def _stock_costing(self, item_name, op_qty, op_val):
+        """Average Cost the way TallyPrime values stock: value = quantity x the weighted average rate of everything received
+        in the financial year (stock carried in at 1 April included). Verified against a real TallyPrime: its year-start
+        opening values and closing values of five items - positive and negative stock - are reproduced
+        to within a paisa (rate rounding), where monthly and daily running averages were 1-13% out.
 
-        Returns (running_value, running_qty, year_rate):
-        * running_value - value after costing each month's issues at that month's average (see below). On a real
-          company one item matched TallyPrime to the paisa; two others stay 0.9% and 2.8% off (cause not found).
-        * year_rate - average rate of this financial year's purchases (plus stock carried in at the start of the
-          year). TallyPrime values a NEGATIVE closing balance at that rate: on a real company it reproduced
-          the rate to four decimals (50.2189 per kg) where the all-time average did not. The year starts on 1 April.
-        """
+        Returns one row per month with movements: month, in/out quantity, in value, closing quantity and closing value.
+        Stock carried into a new year is valued at the closing rate; a year with no receipts keeps the last rate; negative
+        stock is valued at the year's average rate and is not carried forward as value."""
         rows = self.conn.execute("""
-            SELECT v.date, vi.direction, vi.qty, vi.amount FROM voucher_inventory vi JOIN voucher v ON v.id = vi.voucher_id
+            SELECT substr(v.date, 1, 7) AS m, vi.direction, vi.qty, vi.amount FROM voucher_inventory vi JOIN voucher v ON v.id = vi.voucher_id
             WHERE vi.stock_item_name = ? AND v.is_cancelled = 0 AND (v.is_optional = 0 OR v.voucher_type IN
                   ('Stock Journal', 'Delivery Note', 'Receipt Note', 'Rejections In', 'Rejections Out', 'Material In', 'Material Out'))
-            ORDER BY v.date, v.id, vi.id""", (item_name,)).fetchall()
+            ORDER BY v.date""", (item_name,)).fetchall()
         zero = Decimal("0")
-        year_start = None
-        if rows:
-            last = str(rows[-1]["date"])
-            year = int(last[:4]) - (1 if int(last[5:7]) < 4 else 0)
-            year_start = f"{year}-04-01"
-        # Average Cost is a MONTHLY average: a month's purchases are weighed in before that month's issues, and every
-        # issue of the month is costed at that rate. (One real item matched TallyPrime to the paisa this way; a daily
-        # running average was off by 1.4%.) Short stock keeps the last known rate.
         months = {}
         for r in rows:
-            month = months.setdefault(str(r["date"])[:7], [zero, zero, zero])
-            moved = to_qty_dec(r["qty"])
+            slot = months.setdefault(r["m"], [zero, zero, zero])
             if r["direction"] == "In":
-                month[0] += moved
-                month[1] += to_dec(r["amount"])
+                slot[0] += to_qty_dec(r["qty"])
+                slot[1] += to_dec(r["amount"])
             else:
-                month[2] += moved
-        qty, value, rate = op_qty, op_val, ((op_val / op_qty) if op_qty > 0 else zero)
+                slot[2] += to_qty_dec(r["qty"])
+        fy_of = lambda key: int(key[:4]) - (1 if int(key[5:7]) < 4 else 0)
+        qty, rate = op_qty, ((op_val / op_qty) if op_qty > 0 else zero)
+        series, fy = [], None
+        open_qty, open_val, cum_qty, cum_val = op_qty, (op_val if op_qty > 0 else zero), zero, zero
         for key in sorted(months):
             in_qty, in_val, out_qty = months[key]
-            total_qty, total_val = qty + in_qty, value + in_val
-            if total_qty > 0:
-                rate = total_val / total_qty
-            qty, value = total_qty - out_qty, total_val - out_qty * rate
-        # This year's purchase rate (for negative stock): the year's inwards plus stock carried in on 1 April.
-        year_qty = year_val = None
-        run_qty, run_val = op_qty, op_val
-        for r in rows:
-            if year_qty is None and str(r["date"]) >= year_start:
-                year_qty, year_val = (run_qty, run_val) if run_qty > 0 else (zero, zero)
-            moved = to_qty_dec(r["qty"])
-            if r["direction"] == "In":
-                run_qty += moved
-                run_val += to_dec(r["amount"])
-                if year_qty is not None:
-                    year_qty += moved
-                    year_val += to_dec(r["amount"])
-            else:
-                run_val -= moved * (run_val / run_qty) if run_qty > 0 else zero
-                run_qty -= moved
-        year_rate = (year_val / year_qty) if year_qty else None
-        return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), qty, year_rate
+            if fy is not None and fy_of(key) != fy:                       # new financial year: carry the closing stock in
+                open_qty, open_val = (qty, qty * rate) if qty > 0 else (zero, zero)
+                cum_qty = cum_val = zero
+            fy = fy_of(key)
+            cum_qty += in_qty
+            cum_val += in_val
+            qty += in_qty - out_qty
+            if open_qty + cum_qty > 0:
+                rate = (open_val + cum_val) / (open_qty + cum_qty)
+            series.append({"month": key, "in_qty": in_qty, "in_value": in_val, "out_qty": out_qty,
+                           "closing_qty": qty, "closing_value": (qty * rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), "rate": rate})
+        return series
 
     def get_stock_item_summary(self, item_name: str) -> Dict[str, Any]:
         cursor = self.conn.cursor()
@@ -1709,13 +1730,13 @@ class EnterpriseAccountingDB(ReliabilityMixin):
         closing_val = (closing_qty * avg_rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if closing_qty != Decimal("0") else Decimal("0.00")
 
         if closing_qty != 0:
-            run_val, _, year_rate = self._stock_walk(item_name, op_qty, op_val)
-            if closing_qty > 0:
-                closing_val = run_val
-            elif year_rate:
-                closing_val = (closing_qty * year_rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            series = self._stock_costing(item_name, op_qty, op_val)
+            if series:
+                closing_val = series[-1]["closing_value"]
+            elif op_qty > 0:
+                closing_val = op_val.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         closing_val = self.inventory_value(item_name, closing_qty, closing_val)
-        if closing_qty > 0:
+        if closing_qty != 0:
             avg_rate = (closing_val / closing_qty).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         reorder_level = to_qty_dec(row["reorder_level"])
         return {
@@ -1758,7 +1779,10 @@ class EnterpriseAccountingDB(ReliabilityMixin):
     def get_godown_summary(self) -> List[Dict[str, Any]]:
         cursor = self.conn.cursor()
         cursor.execute("SELECT DISTINCT name FROM godown")
-        godowns = [r[0] for r in cursor.fetchall()]
+        master = [r[0] for r in cursor.fetchall()]
+        # A godown named on a voucher line but absent from the master is still listed, so the godowns add up to the item totals.
+        used = [r[0] for r in cursor.execute("SELECT DISTINCT godown_name FROM voucher_inventory WHERE godown_name IS NOT NULL AND godown_name != ''")]
+        godowns = master + [g for g in used if g not in master]
 
         result = []
         for g in godowns:
@@ -1766,7 +1790,7 @@ class EnterpriseAccountingDB(ReliabilityMixin):
             cursor.execute("SELECT name, opening_qty FROM stock_item WHERE godown_name = ?", (g,))
             for r in cursor.fetchall():
                 q = float(to_qty_dec(r["opening_qty"]))
-                if q > 0:
+                if q != 0:
                     items_map[r["name"]] = q
 
             cursor.execute("""
@@ -1780,9 +1804,9 @@ class EnterpriseAccountingDB(ReliabilityMixin):
                 net = float(to_qty_dec(r[1]))
                 items_map[r[0]] = items_map.get(r[0], 0.0) + net
 
-            items = [{"item_name": k, "qty": v} for k, v in items_map.items() if v > 0]
+            items = [{"item_name": k, "qty": v} for k, v in items_map.items() if v != 0]       # negative stock is stock too
             total_qty = sum(it["qty"] for it in items)
-            result.append({"godown_name": g, "items": items, "total_qty": total_qty})
+            result.append({"godown_name": g, "items": items, "total_qty": total_qty, "in_master": g in master})
         return result
 
     # -------------------------------------------------------------------------
@@ -1846,6 +1870,111 @@ class EnterpriseAccountingDB(ReliabilityMixin):
     # -------------------------------------------------------------------------
     # Comprehensive Voucher Engine (Create, Alter, Cancel, Delete, Numbering)
     # -------------------------------------------------------------------------
+    # Stock moves out with these voucher types and in with the rest (a Credit Note is a sales return: stock comes back).
+    STOCK_OUT_TYPES = ("Sales", "Debit Note", "Delivery Note", "Rejections Out", "Material Out")
+
+    def next_voucher_number(self, voucher_type: str, date: Optional[str] = None) -> Optional[str]:
+        """The number TallyPrime would offer: the highest running number of this type in the voucher's financial year plus one,
+        keeping prefix, suffix and zero padding ('INV-425/26-27' -> 'INV-426/26-27'). The running part is the digit group
+        that changes between the latest numbers (a year suffix does not). A new financial year restarts at 1, with a 'yy-yy'
+        year suffix moved on. None when there is no numbered voucher of this type to follow."""
+        import re as _re
+        fy_from, fy_to = self._financial_year(date or datetime.date.today().isoformat())
+
+        def numbers(where, params):
+            return [r[0] for r in self.conn.execute(
+                "SELECT voucher_number FROM voucher WHERE voucher_type = ? AND voucher_number IS NOT NULL AND voucher_number != '' "
+                + where + " ORDER BY date DESC, id DESC", (voucher_type,) + params)]
+
+        current = numbers("AND date >= ? AND date <= ?", (fy_from, fy_to))
+        restart = not current
+        rows = current or numbers("AND date < ?", (fy_from,))
+        if not rows:
+            return None
+        split = [_re.split(r"(\d+)", n) for n in rows[:6]]
+        latest = split[0]
+        positions = [i for i in range(1, len(latest), 2)]
+        if not positions:
+            return None
+        def varies(i):
+            return len({p[i] for p in split if len(p) == len(latest)}) > 1
+        changing = [i for i in positions if varies(i)]
+        i = changing[0] if changing else positions[0]      # no history of change: the first number group
+        width = len(latest[i]) if latest[i].startswith("0") else 0
+        if restart:
+            running = 1
+            text = "".join(latest[:i]) + str(running).zfill(width) + "".join(latest[i + 1:])
+            m = _re.search(r"(\d{2})-(\d{2})", text)           # '/26-27' -> the new year's '/27-28'
+            if m and int(m.group(2)) == (int(m.group(1)) + 1) % 100:
+                new_year = int(fy_from[2:4])
+                text = text[:m.start()] + f"{new_year:02d}-{(new_year + 1) % 100:02d}" + text[m.end():]
+            return text
+        highest = int(latest[i])
+        for n in rows:
+            p = _re.split(r"(\d+)", n)
+            if len(p) == len(latest) and all(p[j] == latest[j] for j in range(len(p)) if j != i):
+                highest = max(highest, int(p[i]))
+        latest[i] = str(highest + 1).zfill(width)
+        return "".join(latest)
+
+    @staticmethod
+    def _valid_iso_date(text):
+        try:
+            datetime.date.fromisoformat(str(text))
+            return len(str(text)) == 10
+        except ValueError:
+            return False
+
+    def _cash_bank_ledgers(self):
+        groups = {r["name"]: dict(r) for r in self.conn.execute("SELECT name, parent FROM account_group")}
+        return {r["name"] for r in self.conn.execute("SELECT name, group_name FROM ledger")
+                if self._under_group(groups, r["group_name"], ("Cash-in-Hand", "Bank Accounts", "Bank OD A/c"))}
+
+    def _check_voucher_rules(self, voucher_type, date, entries, inventory_items):
+        """Entry rules shared by new and altered vouchers. Returns True for a company imported from TallyPrime (strict)."""
+        strict = bool(self.get_setting('strict_voucher_entry', False))     # set for companies imported from TallyPrime
+        if date and not self._valid_iso_date(date):
+            raise ValueError(f"Invalid voucher date '{date}': use YYYY-MM-DD")
+        if strict:
+            books_from = self.get_company().get('books_from') or ''
+            if date and books_from and date < books_from:
+                raise ValueError(f"Voucher date {date} is before the books beginning date {books_from}")
+            known = {r[0] for r in self.conn.execute("SELECT name FROM ledger")}
+            for e in entries:
+                if e["ledger_name"] not in known:
+                    raise ValueError(f"Ledger '{e['ledger_name']}' does not exist: create it before using it in a voucher")
+            if voucher_type in ("Payment", "Receipt", "Contra"):
+                cash_bank = self._cash_bank_ledgers()
+                if voucher_type == "Payment" and not any(e["entry_type"] == "Cr" and e["ledger_name"] in cash_bank for e in entries):
+                    raise ValueError("A Payment voucher must credit a cash or bank ledger")
+                if voucher_type == "Receipt" and not any(e["entry_type"] == "Dr" and e["ledger_name"] in cash_bank for e in entries):
+                    raise ValueError("A Receipt voucher must debit a cash or bank ledger")
+                if voucher_type == "Contra" and any(e["ledger_name"] not in cash_bank for e in entries):
+                    raise ValueError("A Contra voucher can only use cash and bank ledgers")
+        if strict and inventory_items:
+            item_total = Decimal("0.00")
+            for inv in inventory_items:
+                qty = to_qty_dec(inv.get("qty") if "qty" in inv else inv.get("quantity", 0))
+                rate = to_dec(inv.get("rate", 0))
+                amount = to_dec(inv.get("amount", qty * rate))
+                if qty < 0:
+                    raise ValueError(f"Quantity of '{inv.get('stock_item_name') or inv.get('item_name')}' cannot be negative")
+                # Rates are held to two decimals, so allow for that rounding; a line with no quantity (a service) has no rate rule.
+                if qty > 0 and rate and abs(amount - qty * rate) > max(Decimal("0.05"), qty * Decimal("0.005") + Decimal("0.01")):
+                    raise ValueError(f"Amount {amount} of '{inv.get('stock_item_name') or inv.get('item_name')}' does not match quantity x rate ({qty * rate:.2f})")
+                item_total += amount
+                godown = inv.get("godown_name") or "Main Location"
+                if not self.conn.execute("SELECT 1 FROM godown WHERE name = ?", (godown,)).fetchone():
+                    raise ValueError(f"Godown '{godown}' does not exist: create it before using it in a voucher")
+            if voucher_type in ("Sales", "Purchase", "Credit Note", "Debit Note"):
+                groups_i = {r["name"]: dict(r) for r in self.conn.execute("SELECT name, parent FROM account_group")}
+                book = {r["name"] for r in self.conn.execute("SELECT name, group_name FROM ledger")
+                        if self._under_group(groups_i, r["group_name"], ("Sales Accounts", "Purchase Accounts"))}
+                posted = [to_dec(e["amount"]) for e in entries if e["ledger_name"] in book]
+                if posted and abs(sum(posted) - item_total) > Decimal("0.01"):
+                    raise ValueError(f"Item amounts ({item_total}) must equal the sales/purchase ledger postings ({sum(posted)})")
+        return strict
+
     def add_voucher(self, voucher_type: str, date: str, narration: str,
                     entries: List[Dict[str, Any]],
                     inventory_items: Optional[List[Dict[str, Any]]] = None,
@@ -1874,6 +2003,7 @@ class EnterpriseAccountingDB(ReliabilityMixin):
             self.require_feature('gst')
             if not self.conn.execute('SELECT 1 FROM gst_registration WHERE id=? AND company_id=?', (registration_id, self.active_company_id)).fetchone():
                 raise ValueError('GST registration does not belong to this company')
+        strict = self._check_voucher_rules(voucher_type, date, entries, inventory_items)
         dr_sum = sum(to_dec(e["amount"]) for e in entries if e["entry_type"] == "Dr")
         cr_sum = sum(to_dec(e["amount"]) for e in entries if e["entry_type"] == "Cr")
 
@@ -1927,9 +2057,11 @@ class EnterpriseAccountingDB(ReliabilityMixin):
                 if s_name:
                     cursor.execute("SELECT id FROM stock_item WHERE name = ?", (s_name,))
                     if not cursor.fetchone():
+                        if strict:
+                            raise ValueError(f"Stock item '{s_name}' does not exist: create it before using it in a voucher")
                         self.add_stock_item(s_name, "Primary", "Nos", "84433100", 18.0)
                     if not allow_neg:
-                        direction = inv.get("direction", "Out" if voucher_type in ("Sales", "Delivery Note", "Rejections Out") else "In")
+                        direction = inv.get("direction", "Out" if voucher_type in self.STOCK_OUT_TYPES else "In")
                         if direction == "Out":
                             req_qty = float(inv.get("qty") if "qty" in inv else inv.get("quantity", 0))
                             avail_qty = self.get_stock_item_quantity(s_name)
@@ -1938,14 +2070,21 @@ class EnterpriseAccountingDB(ReliabilityMixin):
 
         if voucher_number:
             v_num_str = voucher_number
-            cursor.execute("SELECT id FROM voucher WHERE voucher_number = ?", (v_num_str,))
+            # A number is unique per voucher type within a financial year (series restart each April).
+            fy_from, fy_to = self._financial_year(date or datetime.date.today().isoformat())
+            cursor.execute("SELECT id FROM voucher WHERE voucher_number = ? AND voucher_type = ? AND date >= ? AND date <= ?",
+                           (v_num_str, voucher_type, fy_from, fy_to))
             if cursor.fetchone():
                 raise ValueError(f"Duplicate voucher number '{v_num_str}'!")
         else:
-            cursor.execute("SELECT COUNT(*) FROM voucher WHERE voucher_type = ?", (voucher_type,))
-            v_num = cursor.fetchone()[0] + 1
-            clean_prefix = "".join([c for c in voucher_type if c.isupper()]) or voucher_type[:3].upper()
-            v_num_str = f"{clean_prefix}-{v_num:04d}"
+            fy_from, fy_to = self._financial_year(date or datetime.date.today().isoformat())
+            v_num_str = self.next_voucher_number(voucher_type, date)
+            if not v_num_str or self.conn.execute("SELECT 1 FROM voucher WHERE voucher_number = ? AND voucher_type = ? AND date >= ? AND date <= ?",
+                                                  (v_num_str, voucher_type, fy_from, fy_to)).fetchone():
+                cursor.execute("SELECT COUNT(*) FROM voucher WHERE voucher_type = ?", (voucher_type,))
+                v_num = cursor.fetchone()[0] + 1
+                clean_prefix = "".join([c for c in voucher_type if c.isupper()]) or voucher_type[:3].upper()
+                v_num_str = f"{clean_prefix}-{v_num:04d}"
             if registration_id:
                 count = self.conn.execute('SELECT COUNT(*) FROM voucher WHERE voucher_type=? AND gst_registration_id=?', (voucher_type, registration_id)).fetchone()[0]
                 v_num_str = f"R{registration_id}-{clean_prefix}-{count+1:04d}"
@@ -1973,7 +2112,7 @@ class EnterpriseAccountingDB(ReliabilityMixin):
                 for inv in inventory_items:
                     direction = inv.get("direction")
                     if not direction:
-                        direction = "In" if voucher_type in ("Purchase", "Receipt", "Receipt Note") else "Out"
+                        direction = "Out" if voucher_type in self.STOCK_OUT_TYPES else "In"
                     s_name = inv.get("stock_item_name") or inv.get("item_name")
                     godown = inv.get("godown_name", "Main Location")
                     batch = inv.get("batch_number", "")
@@ -1997,6 +2136,26 @@ class EnterpriseAccountingDB(ReliabilityMixin):
                         INSERT INTO bill_allocation (voucher_id, ledger_name, ref_type, ref_name, due_date, amount, direction)
                         VALUES (?, ?, ?, ?, ?, ?, ?)
                     """, (v_id, l_name, r_type, r_name, d_date, b_amt, d_dir))
+            elif strict and voucher_type in ("Sales", "Purchase", "Credit Note", "Debit Note", "Payment", "Receipt"):
+                # TallyPrime gives a bill-wise party an automatic reference: the invoice number as a New Ref for invoices
+                # and notes, On Account for receipts and payments (left unallocated, a later screen can match it).
+                groups_bw = {r["name"]: dict(r) for r in self.conn.execute("SELECT name, parent FROM account_group")}
+                bill_wise = {r["name"] for r in self.conn.execute("SELECT name, group_name FROM ledger WHERE maintain_bill_by_bill = 1")
+                             if self._under_group(groups_bw, r["group_name"], ("Sundry Debtors", "Sundry Creditors"))}
+                for e in entries:
+                    if e["ledger_name"] not in bill_wise:
+                        continue
+                    amt_dec = float(to_dec(e["amount"]))
+                    if voucher_type in ("Payment", "Receipt"):
+                        self.conn.execute("""
+                            INSERT INTO bill_allocation (voucher_id, ledger_name, ref_type, ref_name, due_date, amount, direction)
+                            VALUES (?, ?, 'On Account', '', ?, ?, ?)
+                        """, (v_id, e["ledger_name"], v_date, amt_dec, e["entry_type"]))
+                    else:
+                        self.conn.execute("""
+                            INSERT INTO bill_allocation (voucher_id, ledger_name, ref_type, ref_name, due_date, amount, direction)
+                            VALUES (?, ?, 'New Ref', ?, ?, ?, ?)
+                        """, (v_id, e["ledger_name"], v_num_str, v_date, amt_dec, e["entry_type"]))
             elif voucher_type in ("Sales", "Purchase"):
                 for e in entries:
                     if "Debtor" in e["ledger_name"] or "Creditor" in e["ledger_name"]:
@@ -2027,6 +2186,8 @@ class EnterpriseAccountingDB(ReliabilityMixin):
                       inventory_items: Optional[List[Dict[str, Any]]] = None,
                       bill_allocations: Optional[List[Dict[str, Any]]] = None,
                       user_name: str = "Admin", **kwargs) -> bool:
+        """Alter a voucher under the same rules as entering one. Bill references are kept for party entries whose amount
+        did not change (they used to be wiped), and the edit trail keeps the content before and after."""
         from engine.payroll_workflows import assert_not_finalised_voucher
         assert_not_finalised_voucher(self, voucher_id)
         cursor = self.conn.cursor()
@@ -2034,24 +2195,29 @@ class EnterpriseAccountingDB(ReliabilityMixin):
         old_vch = cursor.fetchone()
         if not old_vch:
             raise ValueError(f"Voucher ID {voucher_id} not found!")
+        voucher_type = old_vch["voucher_type"]
+        v_date = date or old_vch["date"]
+        if "inventory_entries" in kwargs and not inventory_items:
+            inventory_items = kwargs["inventory_entries"]
+        strict = self._check_voucher_rules(voucher_type, v_date, entries, inventory_items)
 
         dr_sum = sum(to_dec(e["amount"]) for e in entries if e["entry_type"] == "Dr")
         cr_sum = sum(to_dec(e["amount"]) for e in entries if e["entry_type"] == "Cr")
+        if dr_sum <= Decimal("0.00"):
+            raise ValueError("Voucher total amount must be strictly positive!")
         if dr_sum != cr_sum:
             raise ValueError(f"Debit total (₹{dr_sum}) does not match Credit total (₹{cr_sum})!")
 
         v_num_str = old_vch["voucher_number"]
-        v_date = date or old_vch["date"]
         total_amt = float(dr_sum)
+        before = self._voucher_snapshot(voucher_id)
+        old_bills = [dict(r) for r in self.conn.execute("SELECT * FROM bill_allocation WHERE voucher_id = ?", (voucher_id,))]
 
         with self.conn:
-            self.conn.execute("""
-                UPDATE voucher 
-                SET date = ?, narration = ?, total_amount = ? 
-                WHERE id = ?
-            """, (v_date, narration, total_amt, voucher_id))
-
-            # Delete old child records and insert updated ones atomically
+            if not self._has_version_snapshot(voucher_id):
+                self._log_voucher_version(before, "ORIGINAL", "State before the first alteration", user_name)
+            self.conn.execute("UPDATE voucher SET date = ?, narration = ?, total_amount = ? WHERE id = ?",
+                              (v_date, narration, total_amt, voucher_id))
             self.conn.execute("DELETE FROM voucher_entry WHERE voucher_id = ?", (voucher_id,))
             self.conn.execute("DELETE FROM voucher_inventory WHERE voucher_id = ?", (voucher_id,))
             self.conn.execute("DELETE FROM bill_allocation WHERE voucher_id = ?", (voucher_id,))
@@ -2063,32 +2229,71 @@ class EnterpriseAccountingDB(ReliabilityMixin):
                     VALUES (?, ?, ?, ?, ?, ?)
                 """, (voucher_id, e["ledger_name"], e["entry_type"], amt_dec, e.get("narration", ""), e.get("cost_centre_name", "")))
 
-            if inventory_items:
-                for inv in inventory_items:
-                    direction = inv.get("direction", "Out")
-                    godown = inv.get("godown_name", "Main Location")
-                    batch = inv.get("batch_number", "")
-                    qty_dec = float(to_qty_dec(inv["qty"]))
-                    rate_dec = float(to_dec(inv["rate"]))
-                    amt_dec = float(to_dec(inv["amount"]))
-                    self.conn.execute("""
-                        INSERT INTO voucher_inventory (voucher_id, stock_item_name, godown_name, batch_number, qty, rate, amount, direction)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (voucher_id, inv["stock_item_name"], godown, batch, qty_dec, rate_dec, amt_dec, direction))
+            for inv in (inventory_items or []):
+                # Stock moves the way the voucher type says unless the line states a direction (a purchase used to flip to 'Out').
+                direction = inv.get("direction") or ("Out" if voucher_type in self.STOCK_OUT_TYPES else "In")
+                qty_dec = float(to_qty_dec(inv.get("qty") if "qty" in inv else inv.get("quantity", 0)))
+                rate_dec = float(to_dec(inv.get("rate", 0)))
+                amt_dec = float(to_dec(inv.get("amount", qty_dec * rate_dec)))
+                self.conn.execute("""
+                    INSERT INTO voucher_inventory (voucher_id, stock_item_name, godown_name, batch_number, qty, rate, amount, direction)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (voucher_id, inv.get("stock_item_name") or inv.get("item_name"), inv.get("godown_name", "Main Location"),
+                      inv.get("batch_number", ""), qty_dec, rate_dec, amt_dec, direction))
 
             if bill_allocations:
                 for b in bill_allocations:
-                    b_amt = float(to_dec(b["amount"]))
                     self.conn.execute("""
                         INSERT INTO bill_allocation (voucher_id, ledger_name, ref_type, ref_name, due_date, amount, direction)
                         VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """, (voucher_id, b["ledger_name"], b.get("ref_type", "New Ref"), b["ref_name"], b.get("due_date", v_date), b_amt, b["direction"]))
+                    """, (voucher_id, b["ledger_name"], b.get("ref_type", "New Ref"), b["ref_name"], b.get("due_date", v_date),
+                          float(to_dec(b["amount"])), b["direction"]))
+            else:
+                groups_bw = {r["name"]: dict(r) for r in self.conn.execute("SELECT name, parent FROM account_group")}
+                bill_wise = {r["name"] for r in self.conn.execute("SELECT name, group_name FROM ledger WHERE maintain_bill_by_bill = 1")
+                             if self._under_group(groups_bw, r["group_name"], ("Sundry Debtors", "Sundry Creditors"))}
+                for e in entries:
+                    amount = float(to_dec(e["amount"]))
+                    same = [b for b in old_bills if b["ledger_name"] == e["ledger_name"] and b["direction"] == e["entry_type"]]
+                    if same and abs(sum(b["amount"] for b in same) - amount) < 0.005:
+                        for b in same:                         # the party's amount did not change: keep its bill references
+                            self.conn.execute("""
+                                INSERT INTO bill_allocation (voucher_id, ledger_name, ref_type, ref_name, due_date, amount, direction)
+                                VALUES (?, ?, ?, ?, ?, ?, ?)
+                            """, (voucher_id, b["ledger_name"], b["ref_type"], b["ref_name"], b["due_date"], b["amount"], b["direction"]))
+                    elif strict and e["ledger_name"] in bill_wise and voucher_type in ("Sales", "Purchase", "Credit Note", "Debit Note", "Payment", "Receipt"):
+                        ref_type, ref = ("On Account", "") if voucher_type in ("Payment", "Receipt") else ("New Ref", v_num_str)
+                        self.conn.execute("""
+                            INSERT INTO bill_allocation (voucher_id, ledger_name, ref_type, ref_name, due_date, amount, direction)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """, (voucher_id, e["ledger_name"], ref_type, ref, v_date, amount, e["entry_type"]))
 
             from engine.gst_books import capture
             capture(self, voucher_id)
-            self._log_edit("Voucher", v_num_str, "ALTER", f"Altered voucher {v_num_str} to ₹{total_amt:,.2f}", user_name=user_name)
+            self._log_voucher_version(self._voucher_snapshot(voucher_id), "ALTER", f"Altered voucher {v_num_str} to ₹{total_amt:,.2f}", user_name)
 
         return True
+
+    def _voucher_snapshot(self, voucher_id):
+        """Full content of a voucher as plain data (for the edit trail: before / after images)."""
+        v = self.conn.execute("SELECT * FROM voucher WHERE id = ?", (voucher_id,)).fetchone()
+        if not v:
+            return None
+        q = lambda sql: [list(r) for r in self.conn.execute(sql, (voucher_id,))]
+        return {"voucher_id": voucher_id, "voucher_number": v["voucher_number"], "voucher_type": v["voucher_type"], "date": v["date"],
+                "narration": v["narration"] or "", "total_amount": v["total_amount"], "is_optional": v["is_optional"],
+                "is_cancelled": v["is_cancelled"],
+                "entries": sorted(q("SELECT ledger_name, entry_type, amount FROM voucher_entry WHERE voucher_id = ?")),
+                "inventory": sorted(q("SELECT stock_item_name, direction, qty, rate, amount, godown_name FROM voucher_inventory WHERE voucher_id = ?")),
+                "bills": sorted(q("SELECT ledger_name, ref_type, ref_name, amount, direction FROM bill_allocation WHERE voucher_id = ?"))}
+
+    def _log_voucher_version(self, snapshot, action, summary, user_name="Admin"):
+        """One edit-trail row carrying the voucher's full content, so versions can be compared and a deleted voucher is not lost."""
+        self._log_edit("Voucher", snapshot["voucher_number"], action, json.dumps({**snapshot, "summary": summary}, ensure_ascii=False), user_name=user_name)
+
+    def _has_version_snapshot(self, voucher_id):
+        return bool(self.conn.execute("SELECT 1 FROM edit_log WHERE entity_type = 'Voucher' AND details LIKE ? LIMIT 1",
+                                      (f'%"voucher_id": {voucher_id},%',)).fetchone())
 
     def cancel_voucher(self, voucher_id: int) -> bool:
         cursor = self.conn.cursor()
@@ -2098,8 +2303,10 @@ class EnterpriseAccountingDB(ReliabilityMixin):
             raise ValueError(f"Voucher ID {voucher_id} not found!")
 
         with self.conn:
+            if not self._has_version_snapshot(voucher_id):
+                self._log_voucher_version(self._voucher_snapshot(voucher_id), "ORIGINAL", "State before cancellation")
             self.conn.execute("UPDATE voucher SET is_cancelled = 1 WHERE id = ?", (voucher_id,))
-            self._log_edit("Voucher", row["voucher_number"], "CANCEL", f"Cancelled {row['voucher_type']} voucher {row['voucher_number']}")
+            self._log_voucher_version(self._voucher_snapshot(voucher_id), "CANCEL", f"Cancelled {row['voucher_type']} voucher {row['voucher_number']}")
         return True
 
     def delete_voucher(self, voucher_id: int) -> bool:
@@ -2112,8 +2319,9 @@ class EnterpriseAccountingDB(ReliabilityMixin):
             raise ValueError(f"Voucher ID {voucher_id} not found!")
 
         with self.conn:
+            deleted = self._voucher_snapshot(voucher_id)                # the content stays in the edit trail
             self.conn.execute("DELETE FROM voucher WHERE id = ?", (voucher_id,))
-            self._log_edit("Voucher", row["voucher_number"], "DELETE", f"Deleted {row['voucher_type']} voucher {row['voucher_number']}")
+            self._log_voucher_version(deleted, "DELETE", f"Deleted {row['voucher_type']} voucher {row['voucher_number']}")
         return True
 
     def get_vouchers(self, limit: int = 100, voucher_type: Optional[str] = None,
@@ -2144,6 +2352,99 @@ class EnterpriseAccountingDB(ReliabilityMixin):
             v["bills"] = [dict(r) for r in cursor.fetchall()]
         return vouchers
 
+    REGISTERS = {
+        # register name -> (title, voucher type, column the party amount is shown in). Sales-type registers total the
+        # amount posted to the PARTY ledger (debtor / creditor): on a real company every month of the Sales and Purchase
+        # registers then equals TallyPrime's report to the paisa (the sales / purchase ledger side did not).
+        "salesregister": ("Sales Register", "Sales", "credit"),
+        "purchaseregister": ("Purchase Register", "Purchase", "debit"),
+        "creditnoteregister": ("Credit Note Register", "Credit Note", "debit"),
+        "debitnoteregister": ("Debit Note Register", "Debit Note", "credit"),
+        "paymentregister": ("Payment Register", "Payment", None),
+        "receiptregister": ("Receipt Register", "Receipt", None),
+        "journalregister": ("Journal Register", "Journal", None),
+        "contraregister": ("Contra Register", "Contra", None),
+    }
+
+    @staticmethod
+    def _financial_year(date_text):
+        year = int(date_text[:4]) - (1 if int(date_text[5:7]) < 4 else 0)
+        return f"{year}-04-01", f"{year + 1}-03-31"
+
+    def get_voucher_register(self, register: str, from_date: Optional[str] = None, to_date: Optional[str] = None,
+                             month: Optional[str] = None) -> Dict[str, Any]:
+        """Month-by-month voucher register (count, debit, credit, running closing) or, for one ``month`` (YYYY-MM),
+        the vouchers in it. Without a period the financial year of the last voucher is used."""
+        key = register.lower().replace(" ", "")
+        if key not in self.REGISTERS:
+            raise ValueError("Unknown register")
+        title, vtype, party_column = self.REGISTERS[key]
+        if not from_date or not to_date:
+            last = self.conn.execute("SELECT MAX(date) FROM voucher").fetchone()[0] or datetime.date.today().isoformat()
+            fy_from, fy_to = self._financial_year(last)
+            from_date, to_date = from_date or fy_from, to_date or fy_to
+        groups = {r["name"]: dict(r) for r in self.conn.execute("SELECT name, parent FROM account_group")}
+        parties = {r["name"] for r in self.conn.execute("SELECT name, group_name FROM ledger")
+                   if self._under_group(groups, r["group_name"], ("Sundry Debtors", "Sundry Creditors"))}
+        where = "v.is_cancelled = 0 AND v.is_optional = 0 AND v.voucher_type = ? AND v.date >= ? AND v.date <= ?"
+        params = [vtype, from_date, to_date]
+        if month:
+            where += " AND substr(v.date, 1, 7) = ?"
+            params.append(month)
+            rows = self.conn.execute(
+                f"""SELECT v.id, v.date, v.voucher_type, v.voucher_number, v.total_amount,
+                           (SELECT GROUP_CONCAT(ledger_name, ', ') FROM voucher_entry e WHERE e.voucher_id = v.id) AS particulars
+                    FROM voucher v WHERE {where} ORDER BY v.date, v.id""", params).fetchall()
+            return {"register": title, "from": from_date, "to": to_date, "month": month, "vouchers": [dict(r) for r in rows]}
+        months = {}
+        for r in self.conn.execute(
+                f"""SELECT substr(v.date, 1, 7) AS m, v.id, e.ledger_name, e.entry_type, e.amount
+                    FROM voucher v JOIN voucher_entry e ON e.voucher_id = v.id WHERE {where}""", params):
+            row = months.setdefault(r["m"], {"vouchers": set(), "debit": Decimal("0.00"), "credit": Decimal("0.00")})
+            row["vouchers"].add(r["id"])
+            if party_column:
+                if r["ledger_name"] in parties:
+                    row[party_column] += to_dec(r["amount"])
+            else:
+                row["debit" if r["entry_type"] == "Dr" else "credit"] += to_dec(r["amount"])
+        out, running = [], Decimal("0.00")
+        y, m = int(from_date[:4]), int(from_date[5:7])
+        while f"{y:04d}-{m:02d}" <= to_date[:7]:
+            key_m = f"{y:04d}-{m:02d}"
+            row = months.get(key_m)
+            debit = row["debit"] if row else Decimal("0.00")
+            credit = row["credit"] if row else Decimal("0.00")
+            running += credit - debit
+            out.append({"month": key_m, "count": len(row["vouchers"]) if row else 0, "debit": float(debit), "credit": float(credit),
+                        "closing": float(running)})
+            m += 1
+            if m > 12:
+                y, m = y + 1, 1
+        return {"register": title, "from": from_date, "to": to_date, "months": out,
+                "total_count": sum(r["count"] for r in out), "total_debit": round(sum(r["debit"] for r in out), 2),
+                "total_credit": round(sum(r["credit"] for r in out), 2)}
+
+    DAY_BOOK_DEFAULT = 100
+    DAY_BOOK_MAX = 5000
+
+    def get_day_book(self, from_date: Optional[str] = None, to_date: Optional[str] = None) -> Dict[str, Any]:
+        """Day Book rows (newest first) in one query. Without a period only the latest 100 are listed; with one, every
+        voucher in it up to 5,000 (it used to stop at 100 even for a chosen period). ``total`` is the full count."""
+        where, params = "v.is_cancelled = 0", []
+        if from_date:
+            where += " AND v.date >= ?"
+            params.append(from_date)
+        if to_date:
+            where += " AND v.date <= ?"
+            params.append(to_date)
+        total = self.conn.execute(f"SELECT COUNT(*) FROM voucher v WHERE {where}", params).fetchone()[0]
+        limit = self.DAY_BOOK_MAX if (from_date or to_date) else self.DAY_BOOK_DEFAULT
+        rows = self.conn.execute(
+            f"""SELECT v.id, v.date, v.voucher_type, v.voucher_number, v.total_amount,
+                       (SELECT GROUP_CONCAT(ledger_name, ', ') FROM voucher_entry e WHERE e.voucher_id = v.id) AS particulars
+                FROM voucher v WHERE {where} ORDER BY v.date DESC, v.id DESC LIMIT ?""", params + [limit]).fetchall()
+        return {"vouchers": [dict(r) for r in rows], "total": total, "limit": limit}
+
     def get_voucher(self, voucher_id: int) -> Optional[Dict[str, Any]]:
         """
         Retrieves a single voucher by ID with all debit/credit entries, inventory items, and bill allocations.
@@ -2165,7 +2466,7 @@ class EnterpriseAccountingDB(ReliabilityMixin):
     # -------------------------------------------------------------------------
     # Bill-Wise Accounting & Ageing Analysis (0-30, 31-60, 61-90, 90+ days)
     # -------------------------------------------------------------------------
-    def get_outstanding_bills(self, group_filter: str = "Sundry Debtors") -> List[Dict[str, Any]]:
+    def get_outstanding_bills(self, group_filter: str = "Sundry Debtors", as_of: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Pending amount per bill reference, matching New Ref with Agst Ref the way TallyPrime's Bills
         Receivable / Bills Payable reports do (verified against a real company: identical bill list).
@@ -2199,7 +2500,7 @@ class EnterpriseAccountingDB(ReliabilityMixin):
             else:
                 item["cr_total"] += amt
 
-        today = datetime.date.today()
+        today = datetime.date.fromisoformat(as_of) if as_of else datetime.date.today()
         result = []
         for item in bills_map.values():
             net = item["dr_total"] - item["cr_total"]
@@ -2214,10 +2515,13 @@ class EnterpriseAccountingDB(ReliabilityMixin):
                     bracket = "61-90 Days"
                 elif age_days > 30:
                     bracket = "31-60 Days"
+                due_date = item["due_date"] or item["bill_date"]
                 result.append({
                     "party_name": item["party_name"], "ledger_name": item["party_name"],
                     "bill_ref": item["bill_ref"], "bill_date": item["bill_date"],
-                    "due_date": item["due_date"] or item["bill_date"],
+                    "due_date": due_date,
+                    # TallyPrime's "overdue by": the as-of date minus the due date (checked on all 3,436 bills of a real company)
+                    "overdue_days": max(0, (today - datetime.date.fromisoformat(due_date)).days),
                     "amount": float(pending), "pending_amount": float(pending),
                     "direction": "Dr" if receivable else "Cr",
                     "age_days": max(0, age_days), "age_bracket": bracket})
@@ -2860,6 +3164,17 @@ class EnterpriseAccountingDB(ReliabilityMixin):
         return tb
 
     @staticmethod
+    def _under_group(groups, name, targets):
+        """True if group ``name`` is one of ``targets`` or sits anywhere below one of them."""
+        seen = set()
+        while name is not None and name not in seen:
+            if name in targets:
+                return True
+            seen.add(name)
+            name = groups.get(name, {}).get("parent")
+        return False
+
+    @staticmethod
     def _root_group(groups, name):
         """Top-level group (directly under Primary) that ``name`` belongs to."""
         seen = set()
@@ -2911,12 +3226,19 @@ class EnterpriseAccountingDB(ReliabilityMixin):
         total_closing_stock = sum(to_dec(s["closing_value"]) for s in stock_sum)
         assets_total += total_closing_stock
 
-        gross_profit = (sales_total + direct_inc + total_closing_stock) - (purchase_total + direct_exp)
+        # Opening stock is a cost of the period: Sales + Closing stock - Opening stock - Purchases - Direct expenses.
+        opening_stock = to_dec(self.conn.execute("SELECT COALESCE(SUM(opening_value), 0) FROM stock_item").fetchone()[0])
+        gross_profit = (sales_total + direct_inc + total_closing_stock) - (opening_stock + purchase_total + direct_exp)
         net_profit = gross_profit + indirect_inc - indirect_exp
 
         return {
             "sales_total": float(sales_total),
             "purchase_total": float(purchase_total),
+            "opening_stock": float(opening_stock),
+            "direct_expenses": float(direct_exp),
+            "direct_incomes": float(direct_inc),
+            "indirect_expenses": float(indirect_exp),
+            "indirect_incomes": float(indirect_inc),
             "closing_stock": float(total_closing_stock),
             "gross_profit": float(gross_profit),
             "net_profit": float(net_profit),
@@ -2927,6 +3249,18 @@ class EnterpriseAccountingDB(ReliabilityMixin):
     PL_ROOTS = ("Sales Accounts", "Purchase Accounts", "Direct Incomes", "Direct Expenses", "Indirect Incomes",
                 "Indirect Expenses", "Payroll Expenses")
     ASSET_ROOTS = ("Fixed Assets", "Investments", "Current Assets", "Misc. Expenses (ASSET)")
+
+    def opening_balance_difference(self) -> Decimal:
+        """TallyPrime's 'Difference in Opening Balances': opening debits (ledgers and stock) minus opening credits. Shown on the
+        liabilities side when positive (debits exceed credits); zero when the opening books agree, as on an imported company."""
+        dr = cr = Decimal("0.00")
+        for r in self.conn.execute("SELECT opening_balance, opening_balance_type FROM ledger"):
+            if r["opening_balance_type"] == "Dr":
+                dr += to_dec(r["opening_balance"])
+            else:
+                cr += to_dec(r["opening_balance"])
+        dr += to_dec(self.conn.execute("SELECT COALESCE(SUM(opening_value), 0) FROM stock_item").fetchone()[0])
+        return dr - cr
 
     def get_balance_sheet(self) -> Dict[str, Any]:
         """Balance Sheet laid out like TallyPrime's: one line per top-level group, closing stock inside Current
@@ -2946,6 +3280,9 @@ class EnterpriseAccountingDB(ReliabilityMixin):
             credit[key] = credit.get(key, Decimal("0.00")) + amount
         fin = self.get_financial_summary()
         credit["Profit & Loss A/c"] = credit.get("Profit & Loss A/c", Decimal("0.00")) + to_dec(fin["net_profit"])
+        difference = self.opening_balance_difference()
+        if difference != 0:
+            credit["Difference in Opening Balances"] = difference
         stock = to_dec(fin["closing_stock"])
         liabilities, assets = [], []
         for name in sorted(set(credit) | {"Current Assets"}):
@@ -2957,6 +3294,7 @@ class EnterpriseAccountingDB(ReliabilityMixin):
             elif value != 0:
                 liabilities.append({"name": name, "amount": value})
         order = {"Capital Account": 0, "Loans (Liability)": 1, "Current Liabilities": 2, "Suspense A/c": 3, "Profit & Loss A/c": 4,
+                 "Difference in Opening Balances": 5,
                  "Fixed Assets": 0, "Investments": 1, "Current Assets": 2}
         for rows in (liabilities, assets):
             rows.sort(key=lambda r: (order.get(r["name"], 9), r["name"]))
@@ -2964,6 +3302,38 @@ class EnterpriseAccountingDB(ReliabilityMixin):
                 "assets": [{"name": r["name"], "amount": float(r["amount"])} for r in assets],
                 "total_liabilities": float(sum((r["amount"] for r in liabilities), Decimal("0.00"))),
                 "total_assets": float(sum((r["amount"] for r in assets), Decimal("0.00")))}
+
+    def get_group_summary(self, group: Optional[str] = None) -> Dict[str, Any]:
+        """Group Summary like TallyPrime's: for the top level (or the chosen group) each sub-group and ledger with its
+        closing debit and credit columns (a group's debit column adds its debit-balance ledgers, the credit column its
+        credit-balance ones). Checked against TallyPrime's report on a real company: every top-level group agrees."""
+        ungrouped = "Primary (ungrouped ledgers)"
+        rows_g = self.conn.execute("SELECT name, parent FROM account_group ORDER BY rowid").fetchall()
+        groups = {r["name"]: dict(r) for r in rows_g}
+        if group is not None and group not in groups:
+            raise ValueError("Unknown group")
+        balances = []
+        for l in self.get_ledgers():
+            bal, side = self.get_ledger_closing_balance(l["name"])
+            balances.append((l["name"], l["group_name"], bal, side))
+        def sums(items):
+            dr = sum((b for _, _, b, sd in items if sd == "Dr"), Decimal("0.00"))
+            cr = sum((b for _, _, b, sd in items if sd == "Cr"), Decimal("0.00"))
+            return dr, cr
+        parent = group
+        children = [r["name"] for r in rows_g if r["name"] != ungrouped and
+                    ((r["parent"] in (None, "Primary")) if parent is None else r["parent"] == parent)]
+        out = []
+        for g in children:
+            dr, cr = sums([x for x in balances if self._under_group(groups, x[1], (g,))])
+            out.append({"name": g, "kind": "group", "debit": float(dr), "credit": float(cr)})
+        direct = [x for x in balances if (x[1] == parent if parent is not None else x[1] == ungrouped)]
+        for name, _, bal, side in direct:
+            if bal:
+                out.append({"name": name, "kind": "ledger", "debit": float(bal) if side == "Dr" else 0.0,
+                            "credit": float(bal) if side == "Cr" else 0.0})
+        return {"group": group, "rows": out,
+                "total_debit": round(sum(r["debit"] for r in out), 2), "total_credit": round(sum(r["credit"] for r in out), 2)}
 
     def get_ratio_analysis(self) -> Dict[str, Any]:
         fin = self.get_financial_summary()
@@ -2973,17 +3343,18 @@ class EnterpriseAccountingDB(ReliabilityMixin):
         current_liab = Decimal("0.00")
         loans, capital = Decimal("0.00"), Decimal("0.00")
 
+        groups = {r["name"]: dict(r) for r in self.conn.execute("SELECT name, parent FROM account_group")}
         for l in ledgers:
             grp = l["group_name"]
             bal_dec, btype = self.get_ledger_closing_balance(l["name"])
-
-            if grp in ("Current Assets", "Bank Accounts", "Cash-in-Hand", "Sundry Debtors", "Deposits (Asset)"):
+            # Sub-groups count with their parent (Sundry Debtors, Duties & Taxes, Bank OD A/c ... all sit under a root).
+            if self._under_group(groups, grp, ("Current Assets",)):
                 current_assets += bal_dec if btype == "Dr" else -bal_dec
-            elif grp in ("Current Liabilities", "Sundry Creditors", "Duties & Taxes", "Provisions"):
+            elif self._under_group(groups, grp, ("Current Liabilities",)):
                 current_liab += bal_dec if btype == "Cr" else -bal_dec
-            elif grp in ("Loans (Liability)", "Bank OD A/c", "Secured Loans", "Unsecured Loans"):
+            elif self._under_group(groups, grp, ("Loans (Liability)", "Bank OD A/c")):
                 loans += bal_dec if btype == "Cr" else -bal_dec
-            elif grp in ("Capital Account", "Reserves & Surplus"):
+            elif self._under_group(groups, grp, ("Capital Account", "Reserves & Surplus")):
                 capital += bal_dec if btype == "Cr" else -bal_dec
 
         c_ratio = (current_assets / current_liab).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if current_liab > Decimal("0") else Decimal("2.00")
@@ -3009,13 +3380,13 @@ class EnterpriseAccountingDB(ReliabilityMixin):
         }
 
     def get_cash_bank_summary(self) -> List[Dict[str, Any]]:
-        ledgers = self.get_ledgers()
+        groups = {r["name"]: dict(r) for r in self.conn.execute("SELECT name, parent FROM account_group")}
         return [{
             "name": l["name"],
             "group_name": l["group_name"],
             "balance": l["closing_balance"],
             "balance_type": l["closing_balance_type"]
-        } for l in ledgers if l["group_name"] in ("Bank Accounts", "Cash-in-Hand", "Bank OD A/c")]
+        } for l in self.get_ledgers() if self._under_group(groups, l["group_name"], ("Bank Accounts", "Cash-in-Hand", "Bank OD A/c"))]
 
     def get_general_ledger_statement(self, ledger_name: str, from_date: Optional[str] = None, to_date: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -5969,16 +6340,25 @@ class EnterpriseAccountingDB(ReliabilityMixin):
         cursor.execute("""
             SELECT id, timestamp, entity_type, entity_id, action, user_name, details, chained_hash
             FROM edit_log
-            WHERE entity_type = 'Voucher' AND (entity_id = ? OR entity_id = ?)
+            WHERE entity_type = 'Voucher' AND (entity_id = ? OR entity_id = ? OR details LIKE ?)
             ORDER BY id ASC
-        """, (str(voucher_id), v_num))
-        rows = [dict(r) for r in cursor.fetchall()]
-        for r in rows:
+        """, (str(voucher_id), v_num, f'%"voucher_id": {voucher_id},%'))
+        rows = []
+        for r in cursor.fetchall():
+            r = dict(r)
             if r["details"]:
                 try:
                     r["details_json"] = json.loads(r["details"])
                 except Exception:
                     r["details_json"] = None
+            # A voucher number repeats across types and years: keep only rows that are provably this voucher's (or older plain-text ones).
+            if isinstance(r.get("details_json"), dict) and r["details_json"].get("voucher_id") not in (None, voucher_id):
+                continue
+            # The snapshot taken before the first alteration belongs to the creation entry, not a version of its own.
+            if r["action"] == "ORIGINAL" and rows and rows[-1]["action"] == "CREATE" and not rows[-1].get("details_json"):
+                rows[-1]["details_json"] = r["details_json"]
+                continue
+            rows.append(r)
         return rows
 
     def get_voucher_diff(self, voucher_id: int) -> Dict[str, Any]:
@@ -6002,6 +6382,8 @@ class EnterpriseAccountingDB(ReliabilityMixin):
                     new_val = curr_det.get(k)
                     if old_val != new_val:
                         changes[k] = {"before": old_val, "after": new_val}
+                if "total_amount" in changes:                       # the key older screens and tests read
+                    changes["amount"] = changes["total_amount"]
             else:
                 p_m = re.search(r"₹([\d,]+(?:\.\d+)?)", v_prev.get("details", ""))
                 c_m = re.search(r"₹([\d,]+(?:\.\d+)?)", v_curr.get("details", ""))
@@ -6200,6 +6582,7 @@ class EnterpriseAccountingDB(ReliabilityMixin):
                 other_current_liabilities += credit
 
         inventories += float(closing_stock)       # closing stock from the vouchers (negative if issued before received)
+        other_current_liabilities += float(self.opening_balance_difference())      # 'Difference in Opening Balances' (zero when the books agree)
 
         total_shareholders_funds = round(share_capital + reserves_surplus, 2)
         total_non_current_liabilities = round(long_term_borrowings, 2)

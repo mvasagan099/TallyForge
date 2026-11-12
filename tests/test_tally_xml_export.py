@@ -102,6 +102,24 @@ class ExportTests(unittest.TestCase):
         self.assertTrue(result['ok'], result['differences'])
         self.assertEqual(result['counts']['vouchers'], 1)
 
+    def test_invoice_details_and_addresses_survive_the_round_trip(self):
+        masters = [m.replace('<ISBILLWISEON>', '<MAILINGNAME>Acme Buyers Pvt Ltd</MAILINGNAME><ADDRESS.LIST><ADDRESS>12 Market Road</ADDRESS>'
+                             '<ADDRESS>Chennai</ADDRESS></ADDRESS.LIST><COUNTRYNAME>India</COUNTRYNAME><ISBILLWISEON>')
+                   if 'Acme Buyer' in m else m for m in MASTERS]
+        vouchers = day_book()
+        vouchers[0] = vouchers[0].replace('<ALTERID>', '<PARTYGSTIN>33ABCDE1234F1Z5</PARTYGSTIN><PLACEOFSUPPLY>Tamil Nadu</PLACEOFSUPPLY>'
+                                          '<CONSIGNEEMAILINGNAME>Acme Godown</CONSIGNEEMAILINGNAME><CMPGSTIN>33AAAAA0000A1Z5</CMPGSTIN>'
+                                          '<ADDRESS.LIST><ADDRESS>Buyer Lane 1</ADDRESS></ADDRESS.LIST><ALTERID>', 1)
+        db = self.imported(vouchers, masters)
+        text = export_company_xml(db).decode('utf-8')
+        for expected in ('<PARTYGSTIN>33ABCDE1234F1Z5</PARTYGSTIN>', '<CONSIGNEEMAILINGNAME>Acme Godown</CONSIGNEEMAILINGNAME>',
+                         '<MAILINGNAME>Acme Buyers Pvt Ltd</MAILINGNAME>', '<ADDRESS>12 Market Road</ADDRESS>', '<ADDRESS>Buyer Lane 1</ADDRESS>'):
+            self.assertIn(expected, text)
+        result = round_trip(db, self.root / 'rt3')
+        self.assertTrue(result['ok'], result['differences'])
+        snap = snapshot(db)
+        self.assertTrue(any('33ABCDE1234F1Z5' in v['invoice'] for v in snap['vouchers'].values()))
+
     def test_comparison_reports_what_differs(self):
         db = self.imported(day_book())
         a = snapshot(db)

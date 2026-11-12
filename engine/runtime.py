@@ -15,7 +15,9 @@ Supports all core 2026 Tally reports:
 - Statutory Edit Log Audit Trail
 """
 
+import datetime
 import re
+import urllib.parse
 from decimal import Decimal
 from typing import Dict, List, Any, Optional
 from engine.tdl_parser import TDLSymbolTable, TDLDefinition
@@ -484,7 +486,167 @@ class TDLRuntime:
             "fields": fields
         }
 
+    def _render_stock_summary(self, report_name, kwargs, company):
+        """Stock Summary like TallyPrime's: items with stock, grouped, closing quantity / rate / value; click an item for its
+        monthly summary. Items with a nil balance are hidden unless asked for (a link shows them)."""
+        item_name = kwargs.get("item") or None
+        lines = []
+        if item_name:
+            monthly = self.db.get_stock_item_monthly(item_name, kwargs.get("from_date") or None, kwargs.get("to_date") or None)
+            unit = monthly["unit"] or ""
+            q = lambda v: f"{v:,.2f}".rstrip("0").rstrip(".") if v else "-"
+            m2 = lambda v: f"{v:,.2f}" if v else "-"
+            lines.append({"name": "Header", "fields": [
+                {"name": "Particulars", "display_value": f"{item_name} ({monthly['from']} to {monthly['to']})", "width": 22, "align": "left"},
+                {"name": "InQ", "display_value": f"Inwards Qty ({unit})", "width": 13, "align": "right"},
+                {"name": "InV", "display_value": "Inwards Value (₹)", "width": 16, "align": "right"},
+                {"name": "OutQ", "display_value": f"Outwards Qty ({unit})", "width": 13, "align": "right"},
+                {"name": "OutV", "display_value": "Outwards Value (₹)", "width": 16, "align": "right"},
+                {"name": "CloseQ", "display_value": f"Closing Qty ({unit})", "width": 13, "align": "right"},
+                {"name": "CloseV", "display_value": "Closing Value (₹)", "width": 16, "align": "right"}]})
+            lines.append({"name": "Row", "drill": "", "fields": [{"name": "Particulars", "display_value": "◄ Back to stock summary", "width": 22, "align": "left"}]})
+            lines.append({"name": "Row", "fields": [
+                {"name": "Particulars", "display_value": "Opening Balance", "width": 22, "align": "left"},
+                {"name": "InQ", "display_value": "", "width": 13}, {"name": "InV", "display_value": "", "width": 16},
+                {"name": "OutQ", "display_value": "", "width": 13}, {"name": "OutV", "display_value": "", "width": 16},
+                {"name": "CloseQ", "display_value": q(monthly["opening_qty"]), "width": 13, "align": "right"},
+                {"name": "CloseV", "display_value": m2(monthly["opening_value"]), "width": 16, "align": "right"}]})
+            for mo in monthly["months"]:
+                label = datetime.date.fromisoformat(mo["month"] + "-01").strftime("%B %Y")
+                lines.append({"name": "Row", "fields": [
+                    {"name": "Particulars", "display_value": label, "width": 22, "align": "left"},
+                    {"name": "InQ", "display_value": q(mo["in_qty"]), "width": 13, "align": "right"},
+                    {"name": "InV", "display_value": m2(mo["in_value"]), "width": 16, "align": "right"},
+                    {"name": "OutQ", "display_value": q(mo["out_qty"]), "width": 13, "align": "right"},
+                    {"name": "OutV", "display_value": m2(mo["out_value"]), "width": 16, "align": "right"},
+                    {"name": "CloseQ", "display_value": q(mo["closing_qty"]), "width": 13, "align": "right"},
+                    {"name": "CloseV", "display_value": m2(mo["closing_value"]), "width": 16, "align": "right"}]})
+            return {"report": report_name, "title": "Stock Item Monthly Summary", "parts": [{"name": "StockMonthlyPart", "lines": lines}], "company": company}
+        show_all = kwargs.get("view") == "all"
+        items = self.db.get_stock_items()
+        # Like TallyPrime's Stock Summary: an item with a quantity but no value is listed only if it moved in the current
+        # financial year (a real company's year-old negative item with no value was left out of TallyPrime's report).
+        last_date = self.db.conn.execute("SELECT MAX(date) FROM voucher").fetchone()[0] or datetime.date.today().isoformat()
+        fy_from, _fy_to = self.db._financial_year(last_date)
+        moved = {r[0] for r in self.db.conn.execute(
+            "SELECT DISTINCT vi.stock_item_name FROM voucher_inventory vi JOIN voucher v ON v.id = vi.voucher_id WHERE v.date >= ? AND v.is_cancelled = 0", (fy_from,))}
+        shown = [i for i in items if show_all or i["closing_value"] or (i["closing_qty"] and i["name"] in moved)]
+        hidden = len(items) - len(shown)
+        lines.append({"name": "Header", "fields": [
+            {"name": "Item", "display_value": "Particulars", "width": 40, "align": "left"},
+            {"name": "CloseQty", "display_value": "Closing Quantity", "width": 22, "align": "right"},
+            {"name": "Rate", "display_value": "Rate (₹)", "width": 16, "align": "right"},
+            {"name": "Value", "display_value": "Closing Value (₹)", "width": 22, "align": "right"}]})
+        if show_all:
+            lines.append({"name": "Row", "drill": "", "fields": [{"name": "Item", "display_value": "◄ Hide items with nil balance", "width": 40, "align": "left"}]})
+        elif hidden:
+            lines.append({"name": "Row", "drill": "view=all", "fields": [{"name": "Item", "display_value": f"► Show {hidden} items with nil balance", "width": 40, "align": "left"}]})
+        groups = {}
+        for i in shown:
+            groups.setdefault(i.get("group_name") or "Primary", []).append(i)
+        total = 0.0
+        for group in sorted(groups):
+            if len(groups) > 1 or group != "Primary":
+                lines.append({"name": "Row", "fields": [{"name": "Item", "display_value": group, "width": 40, "align": "left"}]})
+            for i in groups[group]:
+                total += i["closing_value"]
+                qty = f"{i['closing_qty']:,.3f}".rstrip("0").rstrip(".") if i["closing_qty"] else "-"
+                lines.append({"name": "Row", "drill": "item=" + urllib.parse.quote(i["name"]), "fields": [
+                    {"name": "Item", "display_value": i["name"], "width": 40, "align": "left"},
+                    {"name": "CloseQty", "display_value": f"{qty} {i['uom_symbol'] or ''}".strip() if i["closing_qty"] else "-", "width": 22, "align": "right"},
+                    {"name": "Rate", "display_value": f"{i['closing_rate']:,.2f}" if i["closing_qty"] else "-", "width": 16, "align": "right"},
+                    {"name": "Value", "display_value": f"{i['closing_value']:,.2f}" if i["closing_value"] else "-", "width": 22, "align": "right"}]})
+        lines.append({"name": "Total", "fields": [
+            {"name": "Item", "display_value": "Grand Total", "width": 40, "align": "left"},
+            {"name": "CloseQty", "display_value": "", "width": 22}, {"name": "Rate", "display_value": "", "width": 16},
+            {"name": "Value", "display_value": f"{total:,.2f}", "width": 22, "align": "right"}]})
+        return {"report": report_name, "title": "Stock Summary", "parts": [{"name": "StockPart", "lines": lines}], "company": company}
+
+    def _render_trial_balance(self, report_name, kwargs, company):
+        """Trial Balance by group like TallyPrime's: one net debit or credit per group, click a group for its sub-groups
+        and ledgers; a link shows the flat ledger list."""
+        group = kwargs.get("group") or None
+        summary = self.db.get_group_summary(group)
+        money = lambda v: f"{v:,.2f}" if v else "-"
+        lines = [{"name": "Header", "fields": [
+            {"name": "Particulars", "display_value": "Particulars" if not group else f"Particulars ({group})", "width": 56, "align": "left"},
+            {"name": "Debit", "display_value": "Debit (₹)", "width": 22, "align": "right"},
+            {"name": "Credit", "display_value": "Credit (₹)", "width": 22, "align": "right"}]}]
+        lines.append({"name": "Row", "drill": "", "fields": [
+            {"name": "Particulars", "display_value": "◄ Back to all groups", "width": 56, "align": "left"}]} if group else
+                     {"name": "Row", "drill": "view=ledgers", "fields": [
+                         {"name": "Particulars", "display_value": "► Show all ledgers (flat list)", "width": 56, "align": "left"}]})
+        total_dr = total_cr = 0.0
+        for row in summary["rows"]:
+            net = round(row["debit"] - row["credit"], 2)
+            dr, cr = (net, 0.0) if net > 0 else (0.0, -net)
+            total_dr += dr
+            total_cr += cr
+            line = {"name": "Row", "fields": [
+                {"name": "Particulars", "display_value": row["name"], "width": 56, "align": "left"},
+                {"name": "Debit", "display_value": money(dr), "width": 22, "align": "right"},
+                {"name": "Credit", "display_value": money(cr), "width": 22, "align": "right"}]}
+            if row["kind"] == "group":
+                line["drill"] = "group=" + urllib.parse.quote(row["name"])
+            lines.append(line)
+        lines.append({"name": "Total", "fields": [
+            {"name": "Particulars", "display_value": "Grand Total", "width": 56, "align": "left"},
+            {"name": "Debit", "display_value": f"{total_dr:,.2f}", "width": 22, "align": "right"},
+            {"name": "Credit", "display_value": f"{total_cr:,.2f}", "width": 22, "align": "right"}]})
+        return {"report": report_name, "title": "Trial Balance", "parts": [{"name": "TBPart", "lines": lines}], "company": company}
+
+    def _render_register(self, report_name, kwargs, company):
+        register = self.db.get_voucher_register(report_name, kwargs.get("from_date") or None, kwargs.get("to_date") or None,
+                                                kwargs.get("month") or None)
+        money = lambda v: f"{abs(v):,.2f}" if v else "-"
+        def closing(v):
+            return "-" if not v else f"{abs(v):,.2f} {'Cr' if v > 0 else 'Dr'}"
+        lines = []
+        if "months" in register:
+            lines.append({"name": "Header", "fields": [
+                {"name": "Particulars", "display_value": f"{register['register']} ({register['from']} to {register['to']})", "width": 34, "align": "left"},
+                {"name": "Count", "display_value": "Vouchers", "width": 10, "align": "right"},
+                {"name": "Debit", "display_value": "Debit (₹)", "width": 18, "align": "right"},
+                {"name": "Credit", "display_value": "Credit (₹)", "width": 18, "align": "right"},
+                {"name": "Closing", "display_value": "Closing Balance (₹)", "width": 20, "align": "right"}]})
+            for m in register["months"]:
+                label = datetime.date.fromisoformat(m["month"] + "-01").strftime("%B %Y")
+                lines.append({"name": "Row", "drill": f"month={m['month']}", "fields": [
+                    {"name": "Particulars", "display_value": label, "width": 34, "align": "left"},
+                    {"name": "Count", "display_value": str(m["count"]) if m["count"] else "-", "width": 10, "align": "right"},
+                    {"name": "Debit", "display_value": money(m["debit"]), "width": 18, "align": "right"},
+                    {"name": "Credit", "display_value": money(m["credit"]), "width": 18, "align": "right"},
+                    {"name": "Closing", "display_value": closing(m["closing"]), "width": 20, "align": "right"}]})
+            lines.append({"name": "Total", "fields": [
+                {"name": "Particulars", "display_value": "Grand Total", "width": 34, "align": "left"},
+                {"name": "Count", "display_value": f"{register['total_count']:,}", "width": 10, "align": "right"},
+                {"name": "Debit", "display_value": money(register["total_debit"]), "width": 18, "align": "right"},
+                {"name": "Credit", "display_value": money(register["total_credit"]), "width": 18, "align": "right"},
+                {"name": "Closing", "display_value": "", "width": 20, "align": "right"}]})
+        else:
+            lines.append({"name": "Header", "fields": [
+                {"name": "Date", "display_value": "Date", "width": 12, "align": "left"},
+                {"name": "Particulars", "display_value": f"{register['register']} - {register['month']}", "width": 34, "align": "left"},
+                {"name": "VchType", "display_value": "Vch Type", "width": 14, "align": "left"},
+                {"name": "VchNo", "display_value": "Vch No.", "width": 18, "align": "left"},
+                {"name": "Amount", "display_value": "Amount (₹)", "width": 18, "align": "right"}]})
+            lines.append({"name": "Row", "drill": "", "fields": [
+                {"name": "Date", "display_value": "◄ Back to monthly summary", "width": 12, "align": "left"}]})
+            for v in register["vouchers"]:
+                lines.append({"name": "Row", "voucher_id": v["id"], "fields": [
+                    {"name": "Date", "display_value": v["date"], "width": 12, "align": "left"},
+                    {"name": "Particulars", "display_value": (v["particulars"] or "")[:60], "width": 34, "align": "left"},
+                    {"name": "VchType", "display_value": v["voucher_type"], "width": 14, "align": "left"},
+                    {"name": "VchNo", "display_value": v["voucher_number"], "width": 18, "align": "left"},
+                    {"name": "Amount", "display_value": f"{v['total_amount']:,.2f}", "width": 18, "align": "right"}]})
+        return {"report": report_name, "title": register["register"], "parts": [{"name": "RegisterPart", "lines": lines}], "company": company}
+
+    # Reports the built-in renderer owns because the stock TDL definition only produces a flat ledger list.
+    BUILTIN_REPORTS = ("trialbalance", "stocksummary")
+
     def render_report(self, report_name: str, **kwargs) -> Dict[str, Any]:
+        if report_name.lower().replace(" ", "") in self.BUILTIN_REPORTS:
+            return self._render_builtin_fallback(report_name, **kwargs)
         rdef = self.symbols.get_definition("Report", report_name)
         if not rdef:
             return self._render_builtin_fallback(report_name, **kwargs)
@@ -555,6 +717,13 @@ class TDLRuntime:
         name_lower = report_name.lower()
         company = self.db.get_company()
 
+        if name_lower.replace(" ", "") == "stocksummary":
+            return self._render_stock_summary(report_name, kwargs, company)
+
+        # Voucher registers: monthly summary, click a month for its vouchers.
+        if name_lower.replace(" ", "") in self.db.REGISTERS:
+            return self._render_register(report_name, kwargs, company)
+
         # 1. GSTR-1 Outward Supplies
         if "gstr1" in name_lower or "gstr-1" in name_lower:
             gst = self.db.get_gst_summary()
@@ -604,7 +773,7 @@ class TDLRuntime:
 
         # 3. Receivables Ageing Analysis
         elif "receivable" in name_lower or "debtor" in name_lower:
-            bills = self.db.get_outstanding_bills("Sundry Debtors")
+            bills = self.db.get_outstanding_bills("Sundry Debtors", as_of=kwargs.get("to_date") or None)
             lines = [
                 {"name": "Header", "fields": [
                     {"name": "Party", "display_value": "Customer Name", "width": 28, "align": "left"},
@@ -612,6 +781,7 @@ class TDLRuntime:
                     {"name": "Date", "display_value": "Bill Date", "width": 12, "align": "left"},
                     {"name": "Due", "display_value": "Due Date", "width": 12, "align": "left"},
                     {"name": "Age", "display_value": "Days", "width": 8, "align": "right"},
+                    {"name": "Overdue", "display_value": "Overdue By", "width": 10, "align": "right"},
                     {"name": "Bracket", "display_value": "Ageing Bracket", "width": 14, "align": "center"},
                     {"name": "Amt", "display_value": "Pending (₹)", "width": 16, "align": "right"}
                 ]}
@@ -624,6 +794,7 @@ class TDLRuntime:
                     {"name": "Date", "display_value": b["bill_date"], "width": 12, "align": "left"},
                     {"name": "Due", "display_value": b["due_date"], "width": 12, "align": "left"},
                     {"name": "Age", "display_value": str(b["age_days"]), "width": 8, "align": "right"},
+                    {"name": "Overdue", "display_value": str(b["overdue_days"]), "width": 10, "align": "right"},
                     {"name": "Bracket", "display_value": b["age_bracket"], "width": 14, "align": "center"},
                     {"name": "Amt", "display_value": f"{b['amount']:,.2f}", "width": 16, "align": "right"}
                 ]})
@@ -635,7 +806,7 @@ class TDLRuntime:
 
         # 4. Payables Ageing Analysis
         elif "payable" in name_lower or "creditor" in name_lower:
-            bills = self.db.get_outstanding_bills("Sundry Creditors")
+            bills = self.db.get_outstanding_bills("Sundry Creditors", as_of=kwargs.get("to_date") or None)
             lines = [
                 {"name": "Header", "fields": [
                     {"name": "Party", "display_value": "Supplier Name", "width": 28, "align": "left"},
@@ -643,6 +814,7 @@ class TDLRuntime:
                     {"name": "Date", "display_value": "Bill Date", "width": 12, "align": "left"},
                     {"name": "Due", "display_value": "Due Date", "width": 12, "align": "left"},
                     {"name": "Age", "display_value": "Days", "width": 8, "align": "right"},
+                    {"name": "Overdue", "display_value": "Overdue By", "width": 10, "align": "right"},
                     {"name": "Bracket", "display_value": "Ageing Bracket", "width": 14, "align": "center"},
                     {"name": "Amt", "display_value": "Pending (₹)", "width": 16, "align": "right"}
                 ]}
@@ -655,6 +827,7 @@ class TDLRuntime:
                     {"name": "Date", "display_value": b["bill_date"], "width": 12, "align": "left"},
                     {"name": "Due", "display_value": b["due_date"], "width": 12, "align": "left"},
                     {"name": "Age", "display_value": str(b["age_days"]), "width": 8, "align": "right"},
+                    {"name": "Overdue", "display_value": str(b["overdue_days"]), "width": 10, "align": "right"},
                     {"name": "Bracket", "display_value": b["age_bracket"], "width": 14, "align": "center"},
                     {"name": "Amt", "display_value": f"{b['amount']:,.2f}", "width": 16, "align": "right"}
                 ]})
@@ -902,7 +1075,7 @@ class TDLRuntime:
             return {"report": report_name, "title": "Cash and Bank Summary", "parts": [{"name": "CashBankPart", "lines": lines}], "company": company}
 
         # 14. Balance Sheet
-        elif "balance" in name_lower:
+        elif "balance" in name_lower and "trial" not in name_lower:
             sheet = self.db.get_balance_sheet()
             lines = [
                 {"name": "Header", "fields": [
@@ -933,21 +1106,32 @@ class TDLRuntime:
         # 15. Profit & Loss
         elif "profit" in name_lower:
             fin = self.db.get_financial_summary()
+            money = lambda v: f"{v:,.2f}"
+            def row(label, value, kind="Row"):
+                return {"name": kind, "fields": [{"name": "L", "display_value": label, "width": 65, "align": "left"},
+                                                  {"name": "V", "display_value": money(value) if value is not None else "", "width": 35, "align": "right"}]}
+            gp = fin["gross_profit"]
             lines = [
                 {"name": "Header", "fields": [
                     {"name": "Particulars", "display_value": "Particulars", "width": 65, "align": "left"},
-                    {"name": "Amount", "display_value": "Amount (₹)", "width": 35, "align": "right"}
-                ]},
-                {"name": "Row", "fields": [{"name": "L", "display_value": "Sales Accounts (Revenue from Operations)", "width": 65}, {"name": "V", "display_value": f"{fin['sales_total']:,.2f}", "width": 35, "align": "right"}]},
-                {"name": "Row", "fields": [{"name": "L", "display_value": "Closing Stock (Valuation)", "width": 65}, {"name": "V", "display_value": f"{fin['closing_stock']:,.2f}", "width": 35, "align": "right"}]},
-                {"name": "Row", "fields": [{"name": "L", "display_value": "Less: Purchase Accounts", "width": 65}, {"name": "V", "display_value": f"({fin['purchase_total']:,.2f})", "width": 35, "align": "right"}]},
-                {"name": "Total", "fields": [{"name": "L", "display_value": "GROSS PROFIT c/d", "width": 65}, {"name": "V", "display_value": f"{fin['gross_profit']:,.2f}", "width": 35, "align": "right"}]},
-                {"name": "Total", "fields": [{"name": "L", "display_value": "NET PROFIT", "width": 65}, {"name": "V", "display_value": f"{fin['net_profit']:,.2f}", "width": 35, "align": "right"}]}
+                    {"name": "Amount", "display_value": "Amount (₹)", "width": 35, "align": "right"}]},
+                row("Sales Accounts", fin["sales_total"]),
+                row("Direct Incomes", fin["direct_incomes"]),
+                row("Closing Stock", fin["closing_stock"]),
+                row("Less: Opening Stock", 0.0 - fin["opening_stock"]),
+                row("Less: Purchase Accounts", 0.0 - fin["purchase_total"]),
+                row("Less: Direct Expenses", 0.0 - fin["direct_expenses"]),
+                row("GROSS PROFIT" if gp >= 0 else "GROSS LOSS", gp, "Total"),
+                row("Add: Indirect Incomes", fin["indirect_incomes"]),
+                row("Less: Indirect Expenses", 0.0 - fin["indirect_expenses"]),
+                row("NET PROFIT" if fin["net_profit"] >= 0 else "NET LOSS", fin["net_profit"], "Total"),
             ]
             return {"report": report_name, "title": "Profit & Loss A/c", "parts": [{"name": "PLPart", "lines": lines}], "company": company}
 
         # 16. Trial Balance
         elif "trial" in name_lower:
+            if kwargs.get("view") != "ledgers":
+                return self._render_trial_balance(report_name, kwargs, company)
             tb = self.db.get_trial_balance()
             lines = [
                 {"name": "Header", "fields": [
@@ -957,6 +1141,8 @@ class TDLRuntime:
                     {"name": "Credit", "display_value": "Credit (₹)", "width": 14, "align": "right"}
                 ]}
             ]
+            lines.append({"name": "Row", "drill": "", "fields": [
+                {"name": "Particulars", "display_value": "◄ Back to groups", "width": 50, "align": "left"}]})
             tot_dr, tot_cr = 0.0, 0.0
             for item in tb:
                 dr_val = item["closing_balance"] if item["closing_balance_type"] == "Dr" else 0.0
@@ -975,6 +1161,27 @@ class TDLRuntime:
                 {"name": "TotCr", "display_value": f"{tot_cr:,.2f}", "width": 14, "align": "right"}
             ]})
             return {"report": report_name, "title": "Trial Balance", "parts": [{"name": "TBPart", "lines": lines}], "company": company}
+
+        # Group Summary (top level, or a chosen group's sub-groups and ledgers)
+        elif "groupsummary" in name_lower:
+            summary = self.db.get_group_summary(kwargs.get("group") or None)
+            lines = [{"name": "Header", "fields": [
+                {"name": "Particulars", "display_value": "Particulars" if not summary["group"] else f"Particulars ({summary['group']})", "width": 50, "align": "left"},
+                {"name": "Debit", "display_value": "Debit (₹)", "width": 18, "align": "right"},
+                {"name": "Credit", "display_value": "Credit (₹)", "width": 18, "align": "right"}]}]
+            if summary["group"]:
+                lines.append({"name": "Row", "drill": "", "fields": [
+                    {"name": "Particulars", "display_value": "◄ Back to all groups", "width": 50, "align": "left"}]})
+            for row in summary["rows"]:
+                lines.append({"name": "Row", **({"drill": "group=" + urllib.parse.quote(row["name"])} if row["kind"] == "group" else {}), "fields": [
+                    {"name": "Particulars", "display_value": row["name"], "group": row["name"] if row["kind"] == "group" else None, "width": 50, "align": "left"},
+                    {"name": "Debit", "display_value": f"{row['debit']:,.2f}" if row["debit"] else "-", "width": 18, "align": "right"},
+                    {"name": "Credit", "display_value": f"{row['credit']:,.2f}" if row["credit"] else "-", "width": 18, "align": "right"}]})
+            lines.append({"name": "Total", "fields": [
+                {"name": "Total", "display_value": "Grand Total", "width": 50, "align": "left"},
+                {"name": "Debit", "display_value": f"{summary['total_debit']:,.2f}", "width": 18, "align": "right"},
+                {"name": "Credit", "display_value": f"{summary['total_credit']:,.2f}", "width": 18, "align": "right"}]})
+            return {"report": report_name, "title": "Group Summary", "parts": [{"name": "GSPart", "lines": lines}], "company": company}
 
         # 17. Funds Flow Statement
         elif "fundsflow" in name_lower or "funds" in name_lower:
@@ -1615,7 +1822,8 @@ class TDLRuntime:
         # 25. Day Book (Default)
         from_date = kwargs.get("from_date")
         to_date = kwargs.get("to_date")
-        vouchers = self.db.get_vouchers(from_date=from_date, to_date=to_date)
+        book = self.db.get_day_book(from_date=from_date, to_date=to_date)
+        vouchers = book["vouchers"]
         lines = [
             {"name": "Header", "fields": [
                 {"name": "Date", "display_value": "Date", "width": 14, "align": "left"},
@@ -1627,7 +1835,7 @@ class TDLRuntime:
             ]}
         ]
         for v in vouchers:
-            particulars = ", ".join(e["ledger_name"] for e in v.get("entries", []))
+            particulars = v.get("particulars") or ""
             lines.append({"name": "Row", "voucher_id": v.get("id"), "fields": [
                 {"name": "Date", "display_value": v["date"], "width": 14, "align": "left"},
                 {"name": "Particulars", "display_value": particulars[:26], "width": 26, "align": "left"},
@@ -1636,4 +1844,7 @@ class TDLRuntime:
                 {"name": "Amount", "display_value": f"{v['total_amount']:,.2f}", "width": 16, "align": "right"},
                 {"name": "Action", "display_value": f"[Alter #{v.get('id', '')}]", "voucher_id": v.get("id"), "width": 14, "align": "center"}
             ]})
+        if book["total"] > len(vouchers):
+            lines.append({"name": "Total", "fields": [
+                {"name": "More", "display_value": f"Showing {len(vouchers):,} of {book['total']:,} vouchers - choose a period to see the rest", "width": 100, "align": "left"}]})
         return {"report": report_name, "title": "Day Book", "parts": [{"name": "DBPart", "lines": lines}], "company": company}

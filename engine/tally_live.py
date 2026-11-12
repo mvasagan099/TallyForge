@@ -28,6 +28,10 @@ LIVE_TIMEOUT = 180
 STOCK_METHODS = ('Name', 'BaseUnits', 'CostingMethod', 'ValuationMethod', 'OpeningBalance', 'OpeningValue')
 
 VOUCHER_METHODS = ('GUID', 'MasterID', 'AlterID', 'Date', 'VoucherNumber', 'VoucherTypeName', 'PartyLedgerName',
+                   # Invoice header details (names verified accepted by a live TallyPrime):
+                   'PartyMailingName', 'BasicBuyerName', 'PartyGSTIN', 'StateName', 'PlaceOfSupply', 'CmpGSTIN', 'CmpGSTState',
+                   'ConsigneeGSTIN', 'ConsigneeMailingName', 'ConsigneeStateName', 'BasicOrderRef', 'BasicShippedBy',
+                   'BasicFinalDestination',
                    'Narration', 'Reference', 'IsCancelled', 'IsOptional', 'IsDeleted',
                    'AllLedgerEntries.LedgerName', 'AllLedgerEntries.Amount', 'AllLedgerEntries.IsDeemedPositive',
                    'AllInventoryEntries.StockItemName', 'AllInventoryEntries.ActualQty',
@@ -36,7 +40,8 @@ VOUCHER_METHODS = ('GUID', 'MasterID', 'AlterID', 'Date', 'VoucherNumber', 'Vouc
                    'AllLedgerEntries.BillAllocations.Name', 'AllLedgerEntries.BillAllocations.BillType',
                    'AllLedgerEntries.BillAllocations.Amount')
 CENSUS_METHODS = ('GUID', 'Date', 'VoucherTypeName', 'IsCancelled', 'IsOptional', 'IsDeleted', 'AlterID')
-LEDGER_METHODS = ('Name', 'Parent', 'OpeningBalance', 'ClosingBalance', 'GUID')
+# MailingName / Address / CountryName / LedStateName: ledger details the masters report leaves out (verified live).
+LEDGER_METHODS = ('Name', 'Parent', 'OpeningBalance', 'ClosingBalance', 'GUID', 'MailingName', 'Address', 'CountryName', 'LedStateName')
 COMPANY_METHODS = ('Name', 'GUID', 'StartingFrom', 'BooksFrom', 'EndingAt', 'LastVoucherDate')
 
 
@@ -88,7 +93,9 @@ def parse_ledger_balances(raw):
         if not name:
             continue
         get = lambda tag: fix(node.findtext(tag)).strip()
-        out[name] = {'parent': get('PARENT'),
+        out[name] = {'mailing': get('MAILINGNAME'), 'country': get('COUNTRYNAME'), 'state': get('LEDSTATENAME'),
+                     'address': '\n'.join(a for a in (fix(x.text).strip() for x in node.findall('ADDRESS.LIST/ADDRESS')) if a),
+                     'parent': get('PARENT'),
                      'opening': _amount(get('OPENINGBALANCE'), f'ledger {name!r} opening') or Decimal('0'),
                      'closing': _amount(get('CLOSINGBALANCE'), f'ledger {name!r} closing') or Decimal('0')}
     return out
@@ -255,6 +262,10 @@ def build_bundle(fetched):
     filled = unknown = 0
     for led in bundle['ledgers'].values():
         ref = balances.get(led['name'])
+        if ref is not None:
+            for key in ('mailing', 'country', 'state', 'address'):
+                if not led.get(key) and ref.get(key):
+                    led[key] = ref[key]
         if led['opening'] is None and ref is not None:
             led['opening'], led['opening_raw'] = ref['opening'], f'{ref["opening"]}'
             filled += 1

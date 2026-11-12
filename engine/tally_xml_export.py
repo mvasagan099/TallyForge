@@ -7,22 +7,24 @@ the same or a fresh company is idempotent.
 
 Round-trip verified with this project's own importer (``round_trip``): export, import into a fresh company,
 compare every voucher, ledger, group and bill. NOT verified: that a running TallyPrime accepts the file;
-TallyForge never writes to TallyPrime, so that has not been tested. Data this project does not store (GST
-details, addresses, bank details, cost centres, ...) is not exported.
+TallyForge never writes to TallyPrime, so that has not been tested. Data this project does not store (bank
+details, cost centres, ...) is not exported. Buyer / consignee / GST details on vouchers and ledger addresses are.
 """
 import hashlib
 import io
+import json
 import re
 import sqlite3
 import uuid
 from decimal import Decimal
 from xml.etree import ElementTree as ET
 
-from engine.tally_xml_import import NON_POSTING_KINDS, UNGROUPED
+from engine.tally_xml_import import _INVOICE_FIELDS, NON_POSTING_KINDS, UNGROUPED
 
 NAMESPACE = uuid.UUID('6f1c9e1e-5a52-4b6e-9a7d-2d9a6f6f7a10')
 CENT = Decimal('0.01')
 RESERVED_GROUPS = {'Primary'}
+INVOICE_FIELDS = _INVOICE_FIELDS
 
 
 def _d(value):
@@ -33,6 +35,21 @@ def _txt(parent, tag, value):
     node = ET.SubElement(parent, tag)
     node.text = '' if value is None else str(value)
     return node
+
+
+def _json_dict(text):
+    try:
+        value = json.loads(text) if text else {}
+    except ValueError:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _invoice_details_by_voucher(conn):
+    """{voucher id: invoice header details} (buyer, GSTINs, place of supply ...); empty for a company never imported."""
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='voucher_invoice'").fetchone():
+        return {}
+    return {r[0]: _json_dict(r[1]) for r in conn.execute('SELECT voucher_id, details_json FROM voucher_invoice')}
 
 
 def voucher_guid(imported_guid, company_guid, voucher_id):
@@ -94,6 +111,15 @@ def export_company_xml(db, include_vouchers=True):
             _txt(n, 'LEDSTATENAME', l['state'])
         if l['pan']:
             _txt(n, 'INCOMETAXNUMBER', l['pan'])
+        extra = _json_dict(l['udf_data'])
+        if extra.get('mailing'):
+            _txt(n, 'MAILINGNAME', extra['mailing'])
+        if l['address']:
+            al = ET.SubElement(n, 'ADDRESS.LIST')
+            for line in l['address'].split('\n'):
+                _txt(al, 'ADDRESS', line)
+        if extra.get('country'):
+            _txt(n, 'COUNTRYNAME', extra['country'])
     for s in conn.execute('SELECT * FROM stock_item ORDER BY id'):
         n = ET.SubElement(message(), 'STOCKITEM', {'NAME': s['name'], 'ACTION': 'Create'})
         _txt(n, 'NAME', s['name'])
@@ -113,6 +139,7 @@ def export_company_xml(db, include_vouchers=True):
         for i in conn.execute('SELECT * FROM voucher_inventory ORDER BY id'):
             inventory.setdefault(i['voucher_id'], []).append(i)
         units = {r['name']: r['uom_symbol'] for r in conn.execute('SELECT name, uom_symbol FROM stock_item')}
+        invoice_details = _invoice_details_by_voucher(conn)
         for v in conn.execute('SELECT * FROM voucher ORDER BY date, id'):
             vid = v['id']
             n = ET.SubElement(message(), 'VOUCHER', {'VCHTYPE': v['voucher_type'], 'ACTION': 'Create'})
@@ -124,7 +151,14 @@ def export_company_xml(db, include_vouchers=True):
                 _txt(n, 'REFERENCE', v['reference_no'])
             if v['narration']:
                 _txt(n, 'NARRATION', v['narration'])
-            non_posting = v['voucher_type'] in NON_POSTING_KINDS
+            for key, tag in INVOICE_FIELDS:
+                if invoice_details.get(vid, {}).get(key):
+                    _txt(n, tag, invoice_details[vid][key])
+            if invoice_details.get(vid, {}).get('address'):
+                al = ET.SubElement(n, 'ADDRESS.LIST')
+                for line in invoice_details[vid]['address'].split('\n'):
+                    _txt(al, 'ADDRESS', line)
+            non_posting =v['voucher_type'] in NON_POSTING_KINDS
             _txt(n, 'ISCANCELLED', 'Yes' if v['is_cancelled'] else 'No')
             # Non-posting kinds are stored as optional internally; exported as what they are.
             _txt(n, 'ISOPTIONAL', 'Yes' if v['is_optional'] and not non_posting else 'No')
@@ -191,8 +225,10 @@ def snapshot(db):
         out['groups'][g['name']] = (g['parent'], int(g['is_revenue']), int(g['affects_gross']))
     for l in conn.execute('SELECT * FROM ledger'):
         out['ledgers'][l['name']] = (l['group_name'], str(_d(l['opening_balance'])), l['opening_balance_type'] if _d(l['opening_balance']) else '',
-                                     l['gstin'] or '', int(l['maintain_bill_by_bill']))
+                                     l['gstin'] or '', int(l['maintain_bill_by_bill']), l['address'] or '',
+                                     json.dumps(_json_dict(l['udf_data']), sort_keys=True))
     entries, bills, inventory = {}, {}, {}
+    invoice_details = _invoice_details_by_voucher(conn)
     for e in conn.execute('SELECT * FROM voucher_entry ORDER BY id'):
         entries.setdefault(e['voucher_id'], []).append((e['ledger_name'], e['entry_type'], str(_d(e['amount']))))
     for b in conn.execute('SELECT * FROM bill_allocation ORDER BY id'):
@@ -205,6 +241,7 @@ def snapshot(db):
         out['vouchers'][guid] = {
             'type': v['voucher_type'], 'date': v['date'], 'number': v['voucher_number'], 'narration': (v['narration'] or '').strip(),
             'reference': v['reference_no'] or '', 'cancelled': int(v['is_cancelled']), 'optional': int(v['is_optional']),
+            'invoice': json.dumps(invoice_details.get(v['id'], {}), sort_keys=True),
             'entries': sorted(entries.get(v['id'], [])), 'bills': sorted(bills.get(v['id'], [])), 'inventory': sorted(inventory.get(v['id'], []))}
     return out
 

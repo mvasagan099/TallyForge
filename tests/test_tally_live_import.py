@@ -348,6 +348,14 @@ class LiveImportTests(unittest.TestCase):
         v = parse_export(HEAD.format(broken).encode())['vouchers'][0]
         self.assertNotEqual(sum(e['amount'] for e in v['entries']), 0)
 
+    def test_ledger_details_come_from_the_ledger_collection(self):
+        raw = HEAD.format('<LEDGER NAME="Cash"><OPENINGBALANCE>-10.00</OPENINGBALANCE><CLOSINGBALANCE>-10.00</CLOSINGBALANCE>'
+                          '<MAILINGNAME>Cash Counter</MAILINGNAME><COUNTRYNAME>India</COUNTRYNAME><LEDSTATENAME>Tamil Nadu</LEDSTATENAME>'
+                          '<ADDRESS.LIST><ADDRESS>1 Main Road</ADDRESS><ADDRESS>Chennai</ADDRESS></ADDRESS.LIST></LEDGER>').encode()
+        info = parse_ledger_balances(raw)['Cash']
+        self.assertEqual((info['mailing'], info['country'], info['state'], info['address']),
+                         ('Cash Counter', 'India', 'Tamil Nadu', '1 Main Road\nChennai'))
+
     def test_first_failure_aborts_without_retry_and_creates_nothing(self):
         tally = FakeTally(**{'List of Accounts': OSError('timed out')})
         with self.assertRaisesRegex(TallyImportError, 'Stopping without retry'):

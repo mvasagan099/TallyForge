@@ -183,7 +183,10 @@ def _ledger(node, fix, src):
             'opening': None if opening_raw is None else _amount(fix(opening_raw), f'{src} ledger {name!r} opening'),
             'opening_raw': None if opening_raw is None else fix(opening_raw).strip(),
             'gstin': _text(node, 'PARTYGSTIN', fix) or _text(node, 'GSTIN', fix),
-            'state': _text(node, 'LEDSTATENAME', fix) or _text(node, 'STATENAME', fix),
+            'state': _text(node, 'LEDSTATENAME', fix) or _text(node, 'STATENAME', fix) or _text(node, 'LEDGSTREGDETAILS.LIST/PLACEOFSUPPLY', fix),
+            'mailing': _text(node, 'MAILINGNAME', fix),
+            'address': '\n'.join(a for a in (fix(x.text).strip() for x in node.findall('ADDRESS.LIST/ADDRESS')) if a),
+            'country': _text(node, 'COUNTRYNAME', fix),
             'pan': _text(node, 'INCOMETAXNUMBER', fix),
             'billwise': _yes(node.findtext('ISBILLWISEON')),
             'deleted': _yes(node.findtext('ISDELETED'))}
@@ -217,6 +220,20 @@ def _signed_entry(entry, fix, where, ledger_tag='LEDGERNAME'):
     return {'ledger': ledger, 'amount': amount, 'bills': bills, 'flag_mismatch': bool(flag_mismatch)}
 
 
+_INVOICE_FIELDS = (('party_mailing_name', 'PARTYMAILINGNAME'), ('buyer_name', 'BASICBUYERNAME'), ('gstin', 'PARTYGSTIN'),
+                   ('state', 'STATENAME'), ('place_of_supply', 'PLACEOFSUPPLY'), ('gst_registration_type', 'GSTREGISTRATIONTYPE'),
+                   ('consignee_name', 'CONSIGNEEMAILINGNAME'), ('consignee_gstin', 'CONSIGNEEGSTIN'),
+                   ('consignee_state', 'CONSIGNEESTATENAME'), ('company_gstin', 'CMPGSTIN'), ('company_state', 'CMPGSTSTATE'),
+                   ('order_ref', 'BASICORDERREF'), ('shipped_by', 'BASICSHIPPEDBY'), ('destination', 'BASICFINALDESTINATION'))
+
+
+def _invoice_details(node, fix):
+    """Header details printed on an invoice (buyer, consignee, GST registrations). Empty values are dropped."""
+    out = {key: _text(node, tag, fix) for key, tag in _INVOICE_FIELDS}
+    out['address'] = '\n'.join(a for a in (fix(x.text).strip() for x in node.findall('ADDRESS.LIST/ADDRESS')) if a)
+    return {k: v for k, v in out.items() if v}
+
+
 def _voucher(node, fix, src):
     guid = _text(node, 'GUID', fix)
     where = f'{src} voucher {guid or "?"}'
@@ -226,6 +243,7 @@ def _voucher(node, fix, src):
          'date': _date(node.findtext('DATE'), where), 'number': _text(node, 'VOUCHERNUMBER', fix),
          'reference': _text(node, 'REFERENCE', fix), 'narration': fix(node.findtext('NARRATION')).strip(),
          'party': _text(node, 'PARTYLEDGERNAME', fix),
+         'invoice': _invoice_details(node, fix),
          'cancelled': _yes(node.findtext('ISCANCELLED')), 'optional': _yes(node.findtext('ISOPTIONAL')),
          'deleted': _yes(node.findtext('ISDELETED')), 'source': src,
          'entries': [], 'inventory': [], 'zero_entries': 0, 'deduplicated_allocations': 0}
@@ -299,6 +317,7 @@ HANDLERS = {'GROUP': ('groups', _group), 'LEDGER': ('ledgers', _ledger), 'VOUCHE
 def voucher_fingerprint(v):
     """Stable content hash used for idempotent re-imports."""
     payload = {k: v.get(k) for k in ('type', 'date', 'number', 'reference', 'narration', 'cancelled', 'optional', 'non_posting')}
+    payload['invoice'] = v.get('invoice') or {}
     payload['entries'] = [[e['ledger'], str(e['amount']), [[b['name'], b['type'], str(b['amount'])] for b in e['bills']]] for e in v['entries']]
     payload['inventory'] = [[i['item'], str(i['qty']), i['unit'], str(i['rate']), str(i['amount']), i['godown'] or 'Main Location', i['batch'], i['direction']] for i in v['inventory']]
     return hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
@@ -393,6 +412,10 @@ CREATE TABLE IF NOT EXISTS tally_import_record (
     source_file TEXT,
     opening_known INTEGER,
     PRIMARY KEY (company_id, kind, guid)
+);
+CREATE TABLE IF NOT EXISTS voucher_invoice (
+    voucher_id INTEGER PRIMARY KEY REFERENCES voucher(id) ON DELETE CASCADE,
+    details_json TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS tally_import_run (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -504,7 +527,9 @@ def import_bundle(db, bundle):
             opening = led['opening'] or Decimal('0')
             op_type = 'Dr' if opening < 0 else 'Cr' if opening > 0 else 'Dr'
             values = dict(group_name=parent, opening_balance=_q(abs(opening)), opening_balance_type=op_type,
-                          gstin=led['gstin'], state=led['state'], pan=led['pan'], maintain_bill_by_bill=int(led['billwise']))
+                          gstin=led['gstin'], state=led['state'], pan=led['pan'], maintain_bill_by_bill=int(led['billwise']),
+                          address=led['address'],
+                          udf_data=json.dumps({k: led[k] for k in ('mailing', 'country') if led[k]}, ensure_ascii=False, sort_keys=True))
             existing = conn.execute('SELECT id,' + ','.join(values) + ' FROM ledger WHERE name=?', (led['name'],)).fetchone()
             if existing:
                 lid = existing['id']
@@ -556,6 +581,9 @@ def import_bundle(db, bundle):
                                (v['type'], v['number'], v['date'], v['narration'], _q(total),
                                 _base_symbol(conn), 1.0, int(v['optional'] or v.get('non_posting', False)), int(v['cancelled']),
                                 v['reference'] or None, cid)).lastrowid
+            if v.get('invoice'):
+                conn.execute('INSERT INTO voucher_invoice(voucher_id, details_json) VALUES(?,?)',
+                             (vid, json.dumps(v['invoice'], ensure_ascii=False, sort_keys=True)))
             for e in v['entries']:
                 conn.execute('INSERT INTO voucher_entry(voucher_id,ledger_name,entry_type,amount,narration,cost_centre_name) VALUES(?,?,?,?,?,?)',
                              (vid, e['ledger'], 'Dr' if e['amount'] < 0 else 'Cr', _q(abs(e['amount'])), '', ''))
@@ -575,6 +603,15 @@ def import_bundle(db, bundle):
                        'unbalanced_rejected': ref['unbalanced'], 'duplicates_across_files': dict(bundle['duplicates']),
                        'deleted_records_skipped': dict(bundle['deleted_skipped']), 'ignored_record_types': dict(bundle['other']),
                        'non_posting_vouchers_kept_out_of_balances': dict(bundle.get('non_posting_types', {}))}
+        # A company that came from TallyPrime follows its entry rules (existing ledgers only, voucher-type rules, bill references).
+        conn.execute("INSERT OR REPLACE INTO company_setting VALUES (?,?,?)", (cid, 'strict_voucher_entry', 'true'))
+        # The company's own GSTIN and state are printed on every invoice; vouchers carry them, masters do not.
+        own = Counter((v['invoice'].get('company_gstin'), v['invoice'].get('company_state'))
+                      for v in bundle['vouchers'].values() if v.get('invoice', {}).get('company_gstin'))
+        if own:
+            (gstin, state), _n = own.most_common(1)[0]
+            conn.execute("UPDATE company SET gstin=?, state=?, state_code=? WHERE id=? AND (gstin IS NULL OR gstin='')",
+                         (gstin, state or '', gstin[:2], cid))
         conn.execute('INSERT INTO tally_import_run(company_id,started_at,importer_version,tally_company,sources_json,summary_json) VALUES(?,?,?,?,?,?)',
                      (cid, datetime.datetime.now().isoformat(timespec='seconds'), IMPORTER_VERSION,
                       bundle['companies'][0] if bundle['companies'] else None,

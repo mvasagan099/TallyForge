@@ -176,6 +176,27 @@ class TallyXmlImportTests(unittest.TestCase):
         import_company(self.data, [later])
         self.assertEqual(tuple(row()), ('2026-04-01', '2029-03-31'))      # 10 May 2028 is in the year ending 31 March 2029
 
+    def test_invoice_header_details_are_kept_for_printing(self):
+        masters = [m.replace('<ISBILLWISEON>', '<MAILINGNAME>Acme Buyers Pvt Ltd</MAILINGNAME><ADDRESS.LIST><ADDRESS>12 Market Road</ADDRESS>'
+                             '<ADDRESS>Chennai-600107</ADDRESS></ADDRESS.LIST><COUNTRYNAME>India</COUNTRYNAME><ISBILLWISEON>')
+                   if 'Acme Buyer' in m else m for m in MASTERS]
+        head = ('<PARTYMAILINGNAME>Acme Buyers Pvt Ltd</PARTYMAILINGNAME><PARTYGSTIN>33ABCDE1234F1Z5</PARTYGSTIN>'
+                '<PLACEOFSUPPLY>Tamil Nadu</PLACEOFSUPPLY><CONSIGNEEMAILINGNAME>Acme Godown</CONSIGNEEMAILINGNAME>'
+                '<CMPGSTIN>33AAAAA0000A1Z5</CMPGSTIN><CMPGSTSTATE>Tamil Nadu</CMPGSTSTATE><BASICORDERREF>PO-77</BASICORDERREF>')
+        vouchers = day_book()
+        vouchers[0] = vouchers[0].replace('<ALTERID>', head + '<ALTERID>', 1)
+        report = import_company(self.data, [write(self.src, 'M2.xml', envelope(masters)), write(self.src, 'D2.xml', envelope(vouchers))])
+        conn = self.db(report)
+        import json
+        details = json.loads(conn.execute("SELECT details_json FROM voucher_invoice").fetchone()[0])
+        self.assertEqual((details['gstin'], details['place_of_supply'], details['consignee_name'], details['order_ref']),
+                         ('33ABCDE1234F1Z5', 'Tamil Nadu', 'Acme Godown', 'PO-77'))
+        self.assertEqual(conn.execute('SELECT COUNT(*) FROM voucher_invoice').fetchone()[0], 1)      # vouchers without details have none
+        ledger_row = conn.execute("SELECT address, udf_data FROM ledger WHERE name LIKE 'Acme Buyer%'").fetchone()
+        self.assertEqual(ledger_row[0], '12 Market Road\nChennai-600107')
+        self.assertEqual(json.loads(ledger_row[1]), {'country': 'India', 'mailing': 'Acme Buyers Pvt Ltd'})
+        self.assertEqual(tuple(conn.execute('SELECT gstin, state, state_code FROM company').fetchone()), ('33AAAAA0000A1Z5', 'Tamil Nadu', '33'))
+
     def test_changed_voucher_is_replaced_not_duplicated(self):
         first = import_company(self.data, [self.master, self.daybook])
         changed = list(day_book())
