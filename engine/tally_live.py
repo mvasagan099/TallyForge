@@ -187,6 +187,29 @@ class Source:
         return raw
 
 
+def parse_order_report(raw):
+    """TallyPrime's 'Purchase Orders' / 'Sales Orders' report -> one dict per pending order line: order date and number, item,
+    pending quantity and unit, rate, value and due date (dates as ISO)."""
+    text = _decode(raw)
+    rows = []
+    for block in re.split(r'(?=<DORDATE>)', text):
+        def get(tag):
+            m = re.search(rf'<{tag}>(.*?)</{tag}>', block, re.S)
+            return m.group(1).strip() if m else ''
+        if not get('DORDATE'):
+            continue
+        def day(value):
+            try:
+                return datetime.datetime.strptime(value, '%d-%b-%y').date().isoformat()
+            except ValueError:
+                return ''
+        qty = re.match(r'-?\d+(?:\.\d+)?', get('DORPNDGQTY'))
+        rows.append({'date': day(get('DORDATE')), 'order_no': get('DORNAME'), 'item': get('DORITEM'),
+                     'pending_qty': Decimal(qty.group()) if qty else Decimal('0'), 'unit': re.sub(r'^-?[\d.]+\s*', '', get('DORPNDGQTY')),
+                     'rate': Decimal(get('DORRATE') or '0'), 'value': abs(Decimal(get('DORVALUE') or '0')), 'due_date': day(get('DORDUEON'))})
+    return rows
+
+
 def parse_stock_items(raw):
     """Stock item masters from TallyPrime's own collection: unit, costing method, opening quantity and value.
 
@@ -226,6 +249,12 @@ def fetch_all(source, company, as_at=None):
         'SVFROMDATE': books_from.replace('-', ''), 'SVTODATE': books_from.replace('-', ''), 'EXPLODEFLAG': 'Yes'}))
     raw['tb_close'] = source.get('tb_close', lambda: tally_bridge.report_request('Trial Balance', company, {
         'SVFROMDATE': books_from.replace('-', ''), 'SVTODATE': end.replace('-', ''), 'EXPLODEFLAG': 'Yes'}))
+    for label, report in (('orders_purchase', 'Purchase Orders'), ('orders_sales', 'Sales Orders')):
+        try:
+            raw[label] = source.get(label, lambda r=report: tally_bridge.report_request(r, company, {
+                'SVFROMDATE': books_from.replace('-', ''), 'SVTODATE': end.replace('-', '')}))
+        except (TallyImportError, ValueError):
+            pass                     # the report is optional: a company without orders, or an older capture
     try:
         raw['stock_items'] = source.get('stock_items', lambda: tally_bridge.collection_request(
             # Opening stock is relative to the period asked for: without a period it is the opening of the
@@ -336,6 +365,23 @@ def verify_against_tally(fetched, balances, census):
         def check(name, ok, expected, actual):
             checks.append({'check': name, 'ok': bool(ok), 'expected': str(expected), 'actual': str(actual)})
 
+        for label, order_type in (('orders_purchase', 'Purchase Order'), ('orders_sales', 'Sales Order')):
+            if fetched['raw'].get(label) is None:
+                continue
+            tally_rows = parse_order_report(fetched['raw'][label])
+            from engine import orders as order_engine
+            order_engine.ensure_tables(db)
+            for row in tally_rows:               # due dates exist only in TallyPrime's report: apply them to the matching vouchers
+                for v in db.conn.execute("SELECT id FROM voucher WHERE voucher_type = ? AND reference_no = ? AND date = ?",
+                                         (order_type, row['order_no'], row['date'])).fetchall():
+                    order_engine.set_due_dates(db, v[0], {row['item']: row['due_date']})
+            db.conn.commit()
+            ours = order_engine.pending_orders(db, order_type)
+            key = lambda order_no, item, due, qty, value: (order_no, item, due, str(Decimal(str(qty)).quantize(Decimal('0.001'))), str(Decimal(str(value)).quantize(CENT)))
+            want = sorted(key(r['order_no'], r['item'], r['due_date'], r['pending_qty'], r['value']) for r in tally_rows)
+            got = sorted(key(r['order_no'], r['stock_item_name'], r['due_date'], r['pending_qty'], r['pending_value']) for r in ours)
+            check(f'{order_type} lines equal TallyPrime\'s order report (order no, item, due date, pending quantity, value)', got == want,
+                  f'{len(want)} lines', f'{len(got)} lines' if got == want else f'{len(got)} lines, differences: {sorted(set(got) ^ set(want))[:3]}')
         live = bundle['live']
         check('every voucher in TallyPrime census was fetched', not live['missing_from_fetch'], 0, len(live['missing_from_fetch']))
         check('no fetched voucher absent from census', not live['unexpected_in_fetch'], 0, len(live['unexpected_in_fetch']))

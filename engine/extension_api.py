@@ -5,6 +5,12 @@ import importlib.util
 
 
 def get_route(path, query, db, store):
+    if path == '/api/orders/lines':
+        from engine import orders
+        order_type = query.get('order_type', [''])[0]
+        party = query.get('party', [''])[0] or None
+        lines = [l for l in orders.order_lines(db, order_type, party) if l['pending_qty'] > 0]
+        return 200, {'order_type': order_type, 'lines': lines}
     if path == '/api/vouchers/next_number':
         vtype = query.get('voucher_type', [''])[0]
         date = query.get('date', [''])[0] or None

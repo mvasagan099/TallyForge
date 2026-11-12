@@ -40,6 +40,9 @@ TallyPrime running; both are on the same screen.
 | --- | --- |
 | Enter vouchers | F4 Contra, F5 Payment, F6 Receipt, F7 Journal, F8 Sales, F9 Purchase, Alt+F5 Debit Note, Alt+F6 Credit Note |
 | Enter a sales or purchase invoice | F8 / F9 (also Alt+F5/F6 for notes): choose the party and the sales or purchase ledger, add item lines (quantity, rate, discount %), add freight or other ledgers if needed, tick GST or round off, then Ctrl+A |
+| Enter a sales or purchase order | choose Sales Order or Purchase Order as the voucher type (or search "Order" with Ctrl+K): party, items with quantity, rate and a due date, then Ctrl+A |
+| Receive or deliver against an order | on the invoice, pick the order for each item line ("Against order"); the pending quantity falls |
+| See what is still pending | Gateway menu: Purchase Orders (pending), Sales Orders (pending) |
 | Save a voucher | Ctrl+A |
 | Open or alter a voucher | Click it in the Day Book or in a register |
 | Print an invoice or voucher | Alt+P (from an open voucher it prints that voucher) |
