@@ -69,28 +69,39 @@ class ReportParityTests(unittest.TestCase):
         self.db.conn.commit()
         self.assertEqual(self.db.get_stock_item('Toor')['closing_qty'], 2.0)
 
-    def test_average_cost_is_a_monthly_average(self):
+    def test_average_cost_is_the_financial_years_weighted_average_of_receipts(self):
         self.db.add_ledger('Purchases', 'Purchase Accounts')
         self.db.add_ledger('Sales', 'Sales Accounts')
+        self.db.add_stock_item('Toor', uom_symbol='Kg')
 
-        def run(item, sale_date, second_buy_date):
-            self.db.add_stock_item(item, uom_symbol='Kg')
+        def buy(date, qty, rate):
+            amount = qty * rate
+            self.db.add_voucher('Purchase', date, 'buy', [{'ledger_name': 'Purchases', 'entry_type': 'Dr', 'amount': amount},
+                                                          {'ledger_name': 'Cash', 'entry_type': 'Cr', 'amount': amount}],
+                                inventory_items=[{'stock_item_name': 'Toor', 'qty': qty, 'rate': rate, 'amount': amount, 'direction': 'In'}])
 
-            def buy(date, qty, rate):
-                amount = qty * rate
-                self.db.add_voucher('Purchase', date, 'buy', [{'ledger_name': 'Purchases', 'entry_type': 'Dr', 'amount': amount},
-                                                              {'ledger_name': 'Cash', 'entry_type': 'Cr', 'amount': amount}],
-                                    inventory_items=[{'stock_item_name': item, 'qty': qty, 'rate': rate, 'amount': amount, 'direction': 'In'}])
-            buy('2026-04-01', 10, 10)
-            self.db.add_voucher('Sales', sale_date, 'sell', [{'ledger_name': 'Cash', 'entry_type': 'Dr', 'amount': 100},
-                                                             {'ledger_name': 'Sales', 'entry_type': 'Cr', 'amount': 100}],
-                                inventory_items=[{'stock_item_name': item, 'qty': 5, 'rate': 20, 'amount': 100, 'direction': 'Out'}])
-            buy(second_buy_date, 5, 30)
-            return self.db.get_stock_item(item)
-        later_month = run('Toor', '2026-04-02', '2026-05-03')
-        self.assertEqual((later_month['closing_qty'], later_month['closing_value']), (10.0, 200.0))   # 5 issued at 10, then 5 left + 5 at 30
-        same_month = run('Dal', '2026-04-02', '2026-04-03')
-        self.assertEqual((same_month['closing_qty'], same_month['closing_value']), (10.0, 166.67))   # the month's purchases are all weighed in first
+        def sell(date, qty):
+            self.db.add_voucher('Sales', date, 'sell', [{'ledger_name': 'Cash', 'entry_type': 'Dr', 'amount': qty * 50},
+                                                        {'ledger_name': 'Sales', 'entry_type': 'Cr', 'amount': qty * 50}],
+                                inventory_items=[{'stock_item_name': 'Toor', 'qty': qty, 'rate': 50, 'amount': qty * 50, 'direction': 'Out'}])
+        buy('2026-04-01', 10, 10)
+        sell('2026-04-02', 5)
+        buy('2026-05-03', 5, 30)
+        item = self.db.get_stock_item('Toor')
+        # Everything received this year, 10 at 10 and 5 at 30, averages 16.67 whatever was sold in between.
+        self.assertEqual((item['closing_qty'], item['closing_value']), (10.0, 166.67))
+        # A new financial year starts from the closing stock at its closing rate, then weighs in the year's receipts.
+        sell('2027-04-02', 4)                                                # year 2 opens with the 10 kg (166.67) ...
+        buy('2027-05-01', 6, 30)                                             # ... plus 6 at 30: (166.67 + 180) / 16 = 21.667
+        item = self.db.get_stock_item('Toor')
+        self.assertEqual((item['closing_qty'], item['closing_value']), (12.0, 260.0))
+        monthly = self.db.get_stock_item_monthly('Toor', '2026-04-01', '2027-03-31')
+        self.assertEqual(monthly['months'][-1]['closing_value'], 166.67)
+        april = monthly['months'][0]
+        self.assertEqual((april['in_qty'], april['out_qty'], april['closing_qty']), (10.0, 5.0, 5.0))
+        self.assertEqual(round(0 + april['in_value'] - april['out_value'], 2), april['closing_value'])   # columns reconcile
+        with self.assertRaises(ValueError):
+            self.db.get_stock_item_monthly('Nope')
 
     def test_negative_stock_is_valued_at_this_years_average_purchase_rate(self):
         self.db.add_stock_item('Toor', uom_symbol='Kg')
@@ -204,6 +215,144 @@ class ReportParityTests(unittest.TestCase):
         self.assertEqual(bills['A2']['overdue_days'], 30)        # no due date: counted from the bill date, 1 April
         self.assertEqual(bills['A3']['overdue_days'], 0)         # not yet due
         self.assertEqual(bills['A1']['age_days'], 30)            # age still counts from the bill date
+
+    def test_gross_profit_deducts_opening_stock_and_pl_screen_lists_every_part(self):
+        self.db.add_stock_item('Toor', uom_symbol='Kg', opening_qty=10, opening_rate=10)       # opening stock 100
+        self.db.add_ledger('Sales', 'Sales Accounts')
+        self.db.add_ledger('Freight', 'Direct Expenses')
+        self.db.add_ledger('Rent', 'Indirect Expenses')
+        self.db.add_ledger('Interest', 'Indirect Incomes')
+        self.db.add_voucher('Sales', '2026-04-02', 'sell', [{'ledger_name': 'Cash', 'entry_type': 'Dr', 'amount': 150},
+                                                            {'ledger_name': 'Sales', 'entry_type': 'Cr', 'amount': 150}],
+                            inventory_items=[{'stock_item_name': 'Toor', 'qty': 5, 'rate': 30, 'amount': 150, 'direction': 'Out'}])
+        self.journal('Freight', 'Cash', 20)
+        self.journal('Rent', 'Cash', 10)
+        self.journal('Cash', 'Interest', 5)
+        fin = self.db.get_financial_summary()
+        self.assertEqual((fin['opening_stock'], fin['closing_stock']), (100.0, 50.0))
+        # Sales 150 + closing stock 50 - opening stock 100 - direct expenses 20 = 80; less rent 10, plus interest 5
+        self.assertEqual(fin['gross_profit'], 80.0)
+        self.assertEqual(fin['net_profit'], 75.0)
+        self.assertEqual((fin['direct_expenses'], fin['indirect_expenses'], fin['indirect_incomes']), (20.0, 10.0, 5.0))
+
+    def _party_sale(self, date, amount, number):
+        self.db.add_voucher('Sales', date, 'sale', [{'ledger_name': 'Buyer', 'entry_type': 'Dr', 'amount': amount},
+                                                    {'ledger_name': 'Sales', 'entry_type': 'Cr', 'amount': amount}], voucher_number=number)
+
+    def test_sales_register_totals_the_party_side_by_month_like_tallyprime(self):
+        self.db.add_ledger('Buyer', 'Sundry Debtors')
+        self.db.add_ledger('Sales', 'Sales Accounts')
+        self.db.add_ledger('Freight', 'Indirect Incomes')
+        self._party_sale('2026-04-05', 100, 'S1')
+        self._party_sale('2026-04-20', 50, 'S2')
+        self._party_sale('2026-06-01', 70, 'S3')
+        # A sale with an extra credited charge: the register shows what the party owes (150), not the sales ledger side (100).
+        self.db.add_voucher('Sales', '2026-05-02', 'sale', [{'ledger_name': 'Buyer', 'entry_type': 'Dr', 'amount': 150},
+                                                            {'ledger_name': 'Sales', 'entry_type': 'Cr', 'amount': 100},
+                                                            {'ledger_name': 'Freight', 'entry_type': 'Cr', 'amount': 50}], voucher_number='S4')
+        reg = self.db.get_voucher_register('SalesRegister', '2026-04-01', '2027-03-31')
+        months = {m['month']: m for m in reg['months']}
+        self.assertEqual(len(reg['months']), 12)
+        self.assertEqual((months['2026-04']['count'], months['2026-04']['credit'], months['2026-04']['debit']), (2, 150.0, 0.0))
+        self.assertEqual(months['2026-05']['credit'], 150.0)
+        self.assertEqual(months['2026-06']['closing'], 370.0)          # running total of the credit column
+        self.assertEqual(months['2026-07']['closing'], 370.0)          # months with no vouchers carry it forward
+        self.assertEqual((reg['total_count'], reg['total_credit']), (4, 370.0))
+        month = self.db.get_voucher_register('SalesRegister', '2026-04-01', '2027-03-31', month='2026-04')
+        self.assertEqual([v['voucher_number'] for v in month['vouchers']], ['S1', 'S2'])
+        # No period given: the financial year of the last voucher.
+        self.assertEqual(self.db.get_voucher_register('SalesRegister')['from'], '2026-04-01')
+        with self.assertRaises(ValueError):
+            self.db.get_voucher_register('NoSuchRegister')
+
+    def test_other_registers_count_vouchers_and_total_both_sides(self):
+        self.journal('Cash', 'Cash', 25, date='2026-04-05')
+        self.db.add_voucher('Payment', '2026-04-09', 'p', [{'ledger_name': 'Cash', 'entry_type': 'Cr', 'amount': 40},
+                                                           {'ledger_name': 'Cash', 'entry_type': 'Dr', 'amount': 40}])
+        reg = self.db.get_voucher_register('Payment Register', '2026-04-01', '2026-04-30')
+        self.assertEqual([(m['count'], m['debit'], m['credit']) for m in reg['months']], [(1, 40.0, 40.0)])
+        journal = self.db.get_voucher_register('JournalRegister', '2026-04-01', '2026-04-30')
+        self.assertEqual((journal['total_count'], journal['total_debit']), (1, 25.0))
+
+    def test_register_and_group_summary_reports_render_with_drill_down(self):
+        from engine.runtime import TDLRuntime
+        from engine.tdl_parser import TDLSymbolTable
+        self.db.add_ledger('Buyer', 'Sundry Debtors')
+        self.db.add_ledger('Sales', 'Sales Accounts')
+        self._party_sale('2026-04-05', 100, 'S1')
+        runtime = TDLRuntime(TDLSymbolTable(), self.db)
+        report = runtime.render_report('SalesRegister')
+        lines = report['parts'][0]['lines']
+        april = next(l for l in lines if l.get('drill') == 'month=2026-04')
+        self.assertEqual([f['display_value'] for f in april['fields']][:2], ['April 2026', '1'])
+        drilled = runtime.render_report('SalesRegister', month='2026-04')['parts'][0]['lines']
+        self.assertEqual(drilled[1]['drill'], '')                                  # back row
+        self.assertEqual(drilled[2]['fields'][3]['display_value'], 'S1')
+        summary = runtime.render_report('GroupSummary')['parts'][0]['lines']
+        self.assertTrue(any(l.get('drill', '').startswith('group=') for l in summary))
+        inside = runtime.render_report('GroupSummary', group='Current Assets')['parts'][0]['lines']
+        self.assertEqual(inside[1]['drill'], '')
+
+    def test_trial_balance_is_by_group_with_drill_down_and_a_flat_view(self):
+        from engine.runtime import TDLRuntime
+        from engine.tdl_parser import TDLSymbolTable
+        self.db.add_ledger('Owner', 'Capital Account')
+        self.db.add_ledger('Rent', 'Indirect Expenses')
+        self.db.add_group('Petty Cash', 'Cash-in-Hand', is_revenue=False)
+        self.db.add_ledger('Drawer', 'Petty Cash')
+        self.journal('Cash', 'Owner', 1000)
+        self.journal('Rent', 'Cash', 40)
+        self.journal('Drawer', 'Cash', 100)
+        runtime = TDLRuntime(TDLSymbolTable(), self.db)
+        lines = runtime.render_report('TrialBalance')['parts'][0]['lines']
+        rows = {l['fields'][0]['display_value']: [f['display_value'] for f in l['fields']] for l in lines}
+        self.assertEqual(rows['Capital Account'][1:], ['-', '1,000.00'])
+        self.assertEqual(rows['Current Assets'][1:], ['960.00', '-'])
+        self.assertEqual(rows['Indirect Expenses'][1:], ['40.00', '-'])
+        self.assertEqual(rows['Grand Total'][1], rows['Grand Total'][2])                 # both sides equal
+        self.assertEqual(next(l for l in lines if l['fields'][0]['display_value'] == 'Current Assets').get('drill'), 'group=Current%20Assets')
+        inside = runtime.render_report('TrialBalance', group='Cash-in-Hand')['parts'][0]['lines']
+        self.assertEqual(inside[1]['drill'], '')
+        self.assertIn('Petty Cash', [l['fields'][0]['display_value'] for l in inside])
+        flat = runtime.render_report('TrialBalance', view='ledgers')['parts'][0]['lines']
+        self.assertIn('Drawer', [l['fields'][0]['display_value'] for l in flat])
+        self.assertEqual(runtime.render_report('BalanceSheet')['title'], 'Balance Sheet')   # not captured by the trial balance
+
+    def test_stock_summary_report_hides_nil_items_and_drills_into_monthly_summary(self):
+        from engine.runtime import TDLRuntime
+        from engine.tdl_parser import TDLSymbolTable
+        self.db.add_stock_item('Toor', uom_symbol='Kg')
+        self.db.add_stock_item('Idle', uom_symbol='Kg')
+        self.db.add_ledger('Purchases', 'Purchase Accounts')
+        self.db.add_voucher('Purchase', '2026-04-01', 'buy', [{'ledger_name': 'Purchases', 'entry_type': 'Dr', 'amount': 100},
+                                                              {'ledger_name': 'Cash', 'entry_type': 'Cr', 'amount': 100}],
+                            inventory_items=[{'stock_item_name': 'Toor', 'qty': 10, 'rate': 10, 'amount': 100, 'direction': 'In'}])
+        runtime = TDLRuntime(TDLSymbolTable(), self.db)
+        lines = runtime.render_report('StockSummary')['parts'][0]['lines']
+        names = [l['fields'][0]['display_value'] for l in lines]
+        self.assertIn('Toor', names)
+        self.assertNotIn('Idle', names)
+        self.assertTrue(any(n.startswith('► Show') for n in names))
+        self.assertEqual(lines[-1]['fields'][3]['display_value'], '100.00')
+        toor = next(l for l in lines if l['fields'][0]['display_value'] == 'Toor')
+        self.assertEqual(toor['drill'], 'item=Toor')
+        everything = runtime.render_report('StockSummary', view='all')['parts'][0]['lines']
+        self.assertIn('Idle', [l['fields'][0]['display_value'] for l in everything])
+        monthly = runtime.render_report('StockSummary', item='Toor')['parts'][0]['lines']
+        self.assertEqual(monthly[1]['drill'], '')
+        self.assertEqual(monthly[3]['fields'][0]['display_value'], 'April 2026')
+
+    def test_opening_stock_without_matching_capital_shows_difference_in_opening_balances(self):
+        self.db.add_stock_item('Toor', uom_symbol='Kg', opening_qty=10, opening_rate=10)          # 100 of stock, no capital behind it
+        self.db.add_ledger('Owner', 'Capital Account')
+        sheet = self.db.get_balance_sheet()
+        self.assertEqual({r['name']: r['amount'] for r in sheet['liabilities']}['Difference in Opening Balances'], 100.0)
+        self.assertEqual(sheet['total_liabilities'], sheet['total_assets'])
+        self.assertTrue(self.db.get_schedule_iii_balance_sheet()['is_balanced'])
+        self.db.conn.execute("UPDATE ledger SET opening_balance = 100, opening_balance_type = 'Cr' WHERE name = 'Owner'")
+        self.db.conn.commit()
+        self.assertEqual(self.db.opening_balance_difference(), 0)                                  # capital now matches the stock
+        self.assertNotIn('Difference in Opening Balances', [r['name'] for r in self.db.get_balance_sheet()['liabilities']])
 
     def test_outstanding_bills_are_classified_by_balance_side_like_tallyprime(self):
         self.db.add_ledger('Buyer', 'Sundry Debtors')

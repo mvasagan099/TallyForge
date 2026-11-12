@@ -295,6 +295,12 @@ class TallyRequestHandler(BaseHTTPRequestHandler):
                 kwargs["ledger"] = query["ledger"][0]
             if "group" in query:
                 kwargs["group"] = query["group"][0]
+            if "month" in query:
+                kwargs["month"] = query["month"][0]
+            if "view" in query:
+                kwargs["view"] = query["view"][0]
+            if "item" in query:
+                kwargs["item"] = query["item"][0]
             if "from_date" in query:
                 kwargs["from_date"] = query["from_date"][0]
             if "to_date" in query:
@@ -311,6 +317,15 @@ class TallyRequestHandler(BaseHTTPRequestHandler):
                 # 1. Reports match
                 reports = [
                     {"label": "Balance Sheet", "action": "Display", "target": "BalanceSheet", "category": "Report"},
+                    {"label": "Group Summary", "action": "Display", "target": "GroupSummary", "category": "Report"},
+                    {"label": "Sales Register", "action": "Display", "target": "SalesRegister", "category": "Report"},
+                    {"label": "Purchase Register", "action": "Display", "target": "PurchaseRegister", "category": "Report"},
+                    {"label": "Payment Register", "action": "Display", "target": "PaymentRegister", "category": "Report"},
+                    {"label": "Receipt Register", "action": "Display", "target": "ReceiptRegister", "category": "Report"},
+                    {"label": "Journal Register", "action": "Display", "target": "JournalRegister", "category": "Report"},
+                    {"label": "Contra Register", "action": "Display", "target": "ContraRegister", "category": "Report"},
+                    {"label": "Credit Note Register", "action": "Display", "target": "CreditNoteRegister", "category": "Report"},
+                    {"label": "Debit Note Register", "action": "Display", "target": "DebitNoteRegister", "category": "Report"},
                     {"label": "Profit & Loss A/c", "action": "Display", "target": "ProfitAndLoss", "category": "Report"},
                     {"label": "Trial Balance", "action": "Display", "target": "TrialBalance", "category": "Report"},
                     {"label": "Stock Summary", "action": "Display", "target": "StockSummary", "category": "Report"},

@@ -463,6 +463,22 @@ async function openReport(reportName, reportTitle, fromDate, toDate) {
     }
 }
 
+// Drill into a report row (a month of a register, a sub-group): same report with extra parameters; "" goes back.
+async function openReportDrill(reportName, drill) {
+    const fromInput = document.getElementById("report-from-date");
+    const toInput = document.getElementById("report-to-date");
+    const params = [];
+    if (drill) params.push(drill);
+    if (fromInput && fromInput.value) params.push(`from_date=${encodeURIComponent(fromInput.value)}`);
+    if (toInput && toInput.value) params.push(`to_date=${encodeURIComponent(toInput.value)}`);
+    try {
+        const res = await fetch(`/api/report/${encodeURIComponent(reportName)}${params.length ? "?" + params.join("&") : ""}`);
+        renderReportTable(await res.json(), reportName);
+    } catch (err) {
+        alert("Could not open the report: " + err);
+    }
+}
+
 function filterReportByDate() {
     const fromInput = document.getElementById("report-from-date");
     const toInput = document.getElementById("report-to-date");
@@ -513,7 +529,11 @@ function renderReportTable(reportData, reportName) {
             const tr = document.createElement("tr");
             if (isTotal) tr.className = "total-row";
 
-            if (line.voucher_id && !isHeader && !isTotal) {
+            if (line.drill !== undefined && line.drill !== null && !isHeader && !isTotal) {
+                tr.style.cursor = "pointer";
+                tr.title = line.drill ? "Click to drill down" : "Click to go back";
+                tr.onclick = () => openReportDrill(reportName, line.drill);
+            } else if (line.voucher_id && !isHeader && !isTotal) {
                 tr.style.cursor = "pointer";
                 tr.title = `Click to view / alter Voucher #${line.voucher_id}`;
                 tr.onclick = () => openVoucherForViewOrAlter(line.voucher_id);
@@ -891,30 +911,38 @@ function autoBalanceMultiline() {
     }
 }
 
-function addGSTLinesToMultiline() {
-    let totTaxable = 0;
+async function addGSTLinesToMultiline() {
+    // Taxable value = the lines that are not tax ledgers; the server decides CGST + SGST or IGST from the party's state,
+    // finds the company's own tax ledgers and gives the side (credit for output tax, debit for input tax).
+    const isTax = name => /\b(cgst|sgst|utgst|igst)\b/i.test(name || "");
+    let taxable = 0, party = null;
     state.multilineEntries.forEach(r => {
-        if (r.type === "Cr" && !r.ledger.toLowerCase().includes("gst")) {
-            totTaxable += (parseFloat(r.credit) || 0);
-        } else if (r.type === "Dr" && !r.ledger.toLowerCase().includes("gst")) {
-            totTaxable += (parseFloat(r.debit) || 0);
-        }
+        const ledger = state.ledgers.find(l => l.name === r.ledger);
+        if (ledger && /^Sundry (Debtors|Creditors)$/.test(ledger.group_name || "")) { party = party || ledger.name; return; }
+        if (!isTax(r.ledger)) taxable += (parseFloat(r.credit) || 0) + (parseFloat(r.debit) || 0);
     });
-
-    if (totTaxable <= 0) {
-        alert("Please enter a base line item amount first before calculating GST!");
+    if (taxable <= 0) {
+        alert("Enter the sales or purchase amount first, then calculate GST.");
         return;
     }
-
-    const cgst = Math.round((totTaxable * 0.09) * 100) / 100;
-    const sgst = Math.round((totTaxable * 0.09) * 100) / 100;
-
-    const cgstLedger = state.ledgers.find(l => l.name === "Output CGST" || l.name === "Input CGST") || { name: "Output CGST" };
-    const sgstLedger = state.ledgers.find(l => l.name === "Output SGST" || l.name === "Input SGST") || { name: "Output SGST" };
-
-    const taxType = (state.voucherType === "Purchase" || state.voucherType === "Debit Note") ? "Dr" : "Cr";
-    addMultilineRow(taxType, cgstLedger.name, taxType === "Dr" ? cgst : 0, taxType === "Cr" ? cgst : 0);
-    addMultilineRow(taxType, sgstLedger.name, taxType === "Dr" ? sgst : 0, taxType === "Cr" ? sgst : 0);
+    const rateText = prompt("GST rate for this value (%):", "18");
+    if (rateText === null) return;
+    const rate = parseFloat(rateText);
+    if (!(rate > 0)) { alert("Enter a GST rate above zero."); return; }
+    try {
+        const res = await fetch("/api/gst/suggest", {method: "POST", headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({voucher_type: state.voucherType, party_ledger: party, taxable: {[rate]: taxable}})});
+        const out = await res.json();
+        if (!res.ok) { alert(out.error || "Could not calculate GST"); return; }
+        out.tax_lines.forEach(t => {
+            if (!t.ledger_name) return;
+            addMultilineRow(t.entry_type, t.ledger_name, t.entry_type === "Dr" ? t.amount : 0, t.entry_type === "Cr" ? t.amount : 0);
+        });
+        if (out.warnings.length) alert(out.warnings.join("\n"));
+        else alert(`${out.supply}: tax \u20B9${out.total_tax.toFixed(2)}, invoice total \u20B9${out.invoice_total.toFixed(2)}`);
+    } catch (err) {
+        alert("Could not calculate GST: " + err);
+    }
 }
 
 function autoCalculateGSTPrompt() {
@@ -3086,6 +3114,13 @@ async function exportEWayBillJSON() {
 function openPrintModal() {
     const modal = document.getElementById("print-modal");
     if (modal) {
+        // Printing from an open voucher prints that voucher in TallyPrime's layout.
+        const openVoucher = document.getElementById("vch-id");
+        const voucherScreen = document.getElementById("voucher-screen");
+        if (openVoucher && openVoucher.value && voucherScreen && voucherScreen.style.display !== "none") {
+            document.getElementById("print-doc-type").value = "voucher";
+            document.getElementById("print-ref-id").value = openVoucher.value;
+        }
         modal.style.display = "flex";
         renderPrintPreviewDocument();
     }
@@ -3094,6 +3129,83 @@ function openPrintModal() {
 function closePrintModal() {
     const modal = document.getElementById("print-modal");
     if (modal) modal.style.display = "none";
+}
+
+function printEsc(value) {
+    return String(value ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+}
+function printMoney(value) {
+    return Number(value || 0).toLocaleString("en-IN", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+}
+function printLines(text) {
+    return printEsc(text).replace(/\n/g, "<br>");
+}
+
+// Voucher / tax invoice in the layout TallyPrime prints: seller, buyer and consignee, item table, charges, total in words.
+function renderVoucherPrintHtml(d) {
+    const cell = "border:1px solid #333; padding:4px;";
+    const co = d.company, party = d.party, cons = d.consignee;
+    const head = `
+        <div style="text-align:center; border-bottom:2px solid #333; padding-bottom:6px; margin-bottom:10px;">
+            <h2 style="margin:0;">${printEsc(co.name)}</h2>
+            ${co.address ? `<div style="font-size:0.8rem;">${printLines(co.address)}${co.pincode ? " - " + printEsc(co.pincode) : ""}</div>` : ""}
+            <div style="font-size:0.8rem;">${co.gstin ? "GSTIN/UIN: " + printEsc(co.gstin) : ""}${co.gstin && co.state ? " | " : ""}${co.state ? "State Name: " + printEsc(co.state) : ""}</div>
+            <h3 style="margin:6px 0 0 0;">${printEsc(d.title)}${d.cancelled ? " (CANCELLED)" : ""}${d.optional ? " (OPTIONAL)" : ""}</h3>
+        </div>`;
+    const meta = [["No.", d.number], ["Dated", d.date], ["Reference", d.reference], ["Buyer's Order No.", d.order_ref],
+                  ["Place of Supply", d.place_of_supply], ["Dispatched through", d.shipped_by], ["Destination", d.destination],
+                  ["Vehicle No.", d.vehicle_no]].filter(r => r[1]);
+    const metaHtml = meta.map(r => `<div><strong>${printEsc(r[0])}:</strong> ${printEsc(r[1])}</div>`).join("");
+    const supplierSide = d.voucher_type === "Purchase" || d.voucher_type === "Debit Note";
+    const partyHtml = party.ledger ? `
+        <div>
+            <strong>${supplierSide ? "Supplier (Bill from)" : "Buyer (Bill to)"}</strong><br>
+            <strong>${printEsc(party.name)}</strong><br>
+            ${party.address ? printLines(party.address) + "<br>" : ""}
+            ${party.gstin ? "GSTIN/UIN: " + printEsc(party.gstin) + "<br>" : ""}
+            ${party.state ? "State Name: " + printEsc(party.state) + "<br>" : ""}
+            ${party.pan ? "PAN/IT No: " + printEsc(party.pan) : ""}
+        </div>` : "";
+    const consHtml = (cons.name || cons.gstin) ? `
+        <div><strong>Consignee (Ship to)</strong><br><strong>${printEsc(cons.name)}</strong><br>
+            ${cons.gstin ? "GSTIN/UIN: " + printEsc(cons.gstin) + "<br>" : ""}${cons.state ? "State Name: " + printEsc(cons.state) : ""}</div>` : "";
+    const top = `<div style="display:flex; gap:24px; justify-content:space-between; margin-bottom:10px; font-size:0.82rem;">
+        <div>${partyHtml}</div><div>${consHtml}</div><div>${metaHtml}</div></div>`;
+
+    let body = "";
+    if (d.kind === "invoice") {
+        const showHsn = d.items.some(i => i.hsn);
+        const rows = d.items.map(i => `<tr>
+            <td style="${cell} text-align:center;">${i.no}</td>
+            <td style="${cell}"><strong>${printEsc(i.name)}</strong></td>
+            ${showHsn ? `<td style="${cell} text-align:center;">${printEsc(i.hsn)}</td>` : ""}
+            <td style="${cell} text-align:right;">${printEsc(i.qty)} ${printEsc(i.unit)}</td>
+            <td style="${cell} text-align:right;">${printMoney(i.rate)}</td>
+            <td style="${cell} text-align:right;">${printMoney(i.amount)}</td></tr>`).join("");
+        const cols = showHsn ? 4 : 3;
+        const charges = d.charges.map(c => `<tr><td colspan="${cols + 1}" style="${cell} text-align:right;"><em>${printEsc(c.name)}</em></td>
+            <td style="${cell} text-align:right;">${printMoney(c.amount)} ${printEsc(c.type)}</td></tr>`).join("");
+        body = `<table style="width:100%; border-collapse:collapse; font-size:0.8rem;">
+            <thead style="background:#eee;"><tr><th style="${cell}">Sl</th><th style="${cell}">Description of Goods</th>
+                ${showHsn ? `<th style="${cell}">HSN/SAC</th>` : ""}<th style="${cell}">Quantity</th><th style="${cell}">Rate</th><th style="${cell}">Amount</th></tr></thead>
+            <tbody>${rows}${charges}</tbody>
+            <tfoot><tr style="font-weight:bold;"><td colspan="${cols + 1}" style="${cell} text-align:right;">Total</td>
+                <td style="${cell} text-align:right;">&#8377; ${printMoney(d.total)}</td></tr></tfoot></table>`;
+    } else {
+        const rows = d.entries.map(e => `<tr><td style="${cell}">${e.type === "Dr" ? "Dr" : "Cr"}</td><td style="${cell}"><strong>${printEsc(e.ledger)}</strong></td>
+            <td style="${cell} text-align:right;">${e.type === "Dr" ? printMoney(e.amount) : ""}</td><td style="${cell} text-align:right;">${e.type === "Cr" ? printMoney(e.amount) : ""}</td></tr>`).join("");
+        body = `<table style="width:100%; border-collapse:collapse; font-size:0.8rem;">
+            <thead style="background:#eee;"><tr><th style="${cell}"></th><th style="${cell}">Particulars</th><th style="${cell}">Debit</th><th style="${cell}">Credit</th></tr></thead>
+            <tbody>${rows}</tbody></table>`;
+    }
+    const bills = d.bills.length ? `<div style="margin-top:8px; font-size:0.8rem;"><strong>Bill references:</strong> ${d.bills.map(b => printEsc(b.name || b.type) + " (" + printEsc(b.type) + ", " + printMoney(b.amount) + ")").join("; ")}</div>` : "";
+    const words = d.kind === "invoice" ? `<div style="margin-top:10px; font-size:0.85rem;"><strong>Amount Chargeable (in words):</strong> ${printEsc(d.amount_in_words)}</div>` : "";
+    const narration = d.narration ? `<div style="margin-top:8px; font-size:0.8rem;"><strong>Narration:</strong> ${printEsc(d.narration)}</div>` : "";
+    const foot = d.kind === "invoice" ? `<div style="margin-top:24px; display:flex; justify-content:space-between; font-size:0.75rem;">
+        <div>Declaration: We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.</div>
+        <div style="text-align:right;">for ${printEsc(co.name)}<br><br><br>Authorised Signatory</div></div>
+        <div style="text-align:center; margin-top:10px; font-size:0.7rem;">This is a Computer Generated Invoice</div>` : "";
+    return head + top + body + words + bills + narration + foot;
 }
 
 async function renderPrintPreviewDocument() {
@@ -3105,6 +3217,13 @@ async function renderPrintPreviewDocument() {
     container.innerHTML = "Generating print preview...";
 
     try {
+        if (docType === "voucher") {
+            const res = await fetch(`/api/vouchers/print?voucher_id=${encodeURIComponent(refId)}`);
+            const data = await res.json();
+            if (!res.ok) { container.textContent = `Error: ${data.error || "Voucher not found"}`; return; }
+            container.innerHTML = renderVoucherPrintHtml(data);
+            return;
+        }
         if (docType === "invoice") {
             const res = await fetch(`/api/invoices/preview?voucher_id=${refId}`);
             const data = await res.json();

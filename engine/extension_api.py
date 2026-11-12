@@ -7,6 +7,9 @@ import importlib.util
 def get_route(path, query, db, store):
     if path == '/api/search/companies':
         return 200, store.search(query.get('q', [''])[0], db)
+    if path == '/api/vouchers/print':
+        from engine.invoice_print import build_print
+        return 200, build_print(db, int(query['voucher_id'][0]))
     if path == '/api/invoices/preview':
         return 200, db.generate_einvoice_json(int(query['voucher_id'][0]), for_submission=False)
     if path == '/api/company/features':
@@ -68,6 +71,10 @@ def post_route(path, data, db, store, user, contexts=None):
         return 200, save_input(db,data)
     if path.startswith('/api/company/consolidation/') and user['role'] != 'Admin':
         return 403, {'error': 'Administrator access required for group reporting'}
+    if path == '/api/gst/suggest':
+        from engine.gst_entry import suggest_gst
+        return 200, suggest_gst(db, data.get('voucher_type', ''), data.get('party_ledger'), data.get('items'),
+                                data.get('taxable'), data.get('place_of_supply'))
     if path == '/api/tally/bridge/read':
         if user['role'] != 'Admin':
             return 403, {'error':'Administrator access required to configure/read a Tally connection'}
