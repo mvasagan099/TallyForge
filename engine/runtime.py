@@ -508,6 +508,43 @@ class TDLRuntime:
                                                     {"name": "Value", "display_value": f"{total:,.2f}", "width": 18, "align": "right"}]})
         return {"report": report_name, "title": order_type + "s - pending", "parts": [{"name": "OrdersPart", "lines": lines}], "company": company}
 
+    def _render_gst_summary(self, report_name, kwargs, company):
+        """GST summary (GSTR-3B style outward / inward tables, rate-wise) from the posted tax ledgers."""
+        from engine.gst_summary import gst_summary
+        books = self.db.get_company()
+        start = kwargs.get("from_date") or books.get("financial_year_from") or "2000-01-01"
+        end = kwargs.get("to_date") or books.get("financial_year_to") or "2100-01-01"
+        data = gst_summary(self.db, start, end)
+        header = [("Particulars", "Particulars", 30), ("Taxable", "Taxable Value (₹)", 18), ("Cgst", "Central Tax (₹)", 16), ("Sgst", "State/UT Tax (₹)", 16),
+                  ("Igst", "Integrated Tax (₹)", 16), ("Cess", "Cess (₹)", 12)]
+        right = ("Taxable", "Cgst", "Sgst", "Igst", "Cess")
+        m = lambda v: f"{v:,.2f}"
+        def row(name, cells, label):
+            return {"name": name, "fields": [{"name": k, "display_value": cells.get(k, label if k == "Particulars" else ""), "width": w,
+                                               "align": "right" if k in right else "left"} for k, _l, w in header]}
+        lines = [{"name": "Header", "fields": [{"name": k, "display_value": lab, "width": w, "align": "right" if k in right else "left"} for k, lab, w in header]}]
+        def block(title, rows, total):
+            lines.append(row("Row", {}, title))
+            for r in rows:
+                lines.append(row("Row", {"Particulars": f"   Rate {r['rate']:g}% ({r['vouchers']} vouchers)", "Taxable": m(r["taxable"]), "Cgst": m(r["cgst"]),
+                                         "Sgst": m(r["sgst"]), "Igst": m(r["igst"]), "Cess": m(r["cess"])}, ""))
+            if total:
+                lines.append(row("Total", {"Particulars": "   Total", "Taxable": m(total["taxable"]), "Cgst": m(total["cgst"]), "Sgst": m(total["sgst"]),
+                                           "Igst": m(total["igst"]), "Cess": m(total["cess"])}, ""))
+        if data.get("outward") is not None and "outward_total" in data:
+            block("Outward supplies (sales less credit notes)", data["outward"], data["outward_total"])
+            reg, unreg = data["outward_registered"], data["outward_unregistered"]
+            for label, b in (("   of which to registered buyers", reg), ("   of which to unregistered buyers", unreg)):
+                lines.append(row("Row", {"Particulars": label, "Taxable": m(b["taxable"]), "Cgst": m(b["cgst"]), "Sgst": m(b["sgst"]), "Igst": m(b["igst"])}, ""))
+            block("Inward supplies (purchases less debit notes)", data["inward"], data["inward_total"])
+            n = data["net_tax"]
+            lines.append(row("Total", {"Particulars": "Outward tax less inward tax", "Cgst": m(n["cgst"]), "Sgst": m(n["sgst"]), "Igst": m(n["igst"]), "Cess": m(n["cess"])}, ""))
+            lines.append(row("Row", {"Particulars": "Closes against the tax ledgers: " + ("yes" if data["closes"] else "NO")}, ""))
+        for w in data.get("warnings", [])[:6]:
+            lines.append(row("Row", {"Particulars": w}, ""))
+        lines.append(row("Row", {"Particulars": data.get("note", "")}, ""))
+        return {"report": report_name, "title": f"GST Summary ({start} to {end})", "parts": [{"name": "GstPart", "lines": lines}], "company": company}
+
     def _render_stock_summary(self, report_name, kwargs, company):
         """Stock Summary like TallyPrime's: items with stock, grouped, closing quantity / rate / value; click an item for its
         monthly summary. Items with a nil balance are hidden unless asked for (a link shows them)."""
@@ -739,6 +776,8 @@ class TDLRuntime:
         name_lower = report_name.lower()
         company = self.db.get_company()
 
+        if name_lower.replace(" ", "") in ("gstsummary", "gstr3b"):
+            return self._render_gst_summary(report_name, kwargs, company)
         if name_lower.replace(" ", "") in ("purchaseorders", "salesorders"):
             return self._render_orders(report_name, kwargs, company)
 

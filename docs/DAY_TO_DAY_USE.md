@@ -51,6 +51,7 @@ TallyPrime running; both are on the same screen.
 | Open or alter a voucher | Click it in the Day Book or in a register |
 | Print an invoice or voucher | Alt+P (from an open voucher it prints that voucher) |
 | Add GST to an invoice | the *Add GST* button on the multi-line voucher screen |
+| GST summary | Gateway menu: GST Summary (by rate): outward and inward tax by rate for the financial year, with a check that it closes against the tax ledgers. A summary of your books, not a filed return |
 | Reports | Gateway menu: Balance Sheet, Profit & Loss, Trial Balance, Group Summary, Stock Summary, the registers, Day Book |
 | Drill down | Click a row (a month in a register, a group in Trial Balance or Group Summary, an item in Stock Summary) |
 | Search anything | Ctrl+K or Alt+G |

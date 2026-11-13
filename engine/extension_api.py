@@ -22,6 +22,11 @@ def get_route(path, query, db, store):
         return 200, {'strict': strict, 'cash_bank': sorted(db._cash_bank_ledgers()) if strict else []}
     if path == '/api/search/companies':
         return 200, store.search(query.get('q', [''])[0], db)
+    if path == '/api/gst/summary':
+        from engine.gst_summary import gst_summary
+        books = db.get_company()                                  # no dates given: the company's financial year
+        return 200, gst_summary(db, query.get('from', [''])[0] or books.get('financial_year_from') or '2000-01-01',
+                                query.get('to', [''])[0] or books.get('financial_year_to') or '2100-01-01')
     if path == '/api/price-lists':
         from engine import price_lists
         return 200, price_lists.summary(db)
