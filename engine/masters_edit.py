@@ -79,10 +79,69 @@ def _update(db, table, name, values, company_scoped=True):
     db.conn.execute(f"UPDATE {table} SET {sets} WHERE {where}", args)
 
 
+# the simple masters: (table, key column, editable fields, where the name is used)
+SIMPLE = {"units": ("uom", "symbol", {"formal_name": str, "decimal_places": int}, [("stock_item", "uom_symbol"), ("compound_uom", "major_uom"), ("compound_uom", "minor_uom")]),
+          "godowns": ("godown", "name", {"location": str, "parent": str}, [("stock_item", "godown_name"), ("voucher_inventory", "godown_name")]),
+          "cost_centres": ("cost_centre", "name", {"category_name": str, "parent": str}, [("voucher_entry", "cost_centre_name")])}
+PROTECTED = {"godowns": {"Main Location"}}
+KINDS = ("ledgers", "stock_items", "groups") + tuple(SIMPLE)
+
+
+def _simple_used(db, kind, name):
+    table, key, _fields, refs = SIMPLE[kind]
+    for t, c in refs:
+        if t in ("stock_item", "compound_uom"):
+            if _has(db, t, c) and db.conn.execute(f"SELECT 1 FROM {t} WHERE {c} = ? LIMIT 1", (name,)).fetchone():
+                return True
+        elif _has(db, t, c) and db.conn.execute(f"SELECT 1 FROM {t} WHERE {c} = ? LIMIT 1", (name,)).fetchone():
+            return True
+    return False
+
+
+def _simple_alter(db, kind, name, changes, new_name):
+    table, key, fields, refs = SIMPLE[kind]
+    if not db.conn.execute(f"SELECT 1 FROM {table} WHERE {key} = ?", (name,)).fetchone():
+        raise ValueError(f"{name!r} does not exist")
+    if name in PROTECTED.get(kind, ()) and new_name != name:
+        raise ValueError(f"'{name}' is the default location and keeps its name")
+    values = _clean(fields, changes)
+    if kind == "units" and values.get("decimal_places", 0) not in range(0, 6):
+        raise ValueError("Decimal places must be between 0 and 5")
+    if new_name != name:
+        if db.conn.execute(f"SELECT 1 FROM {table} WHERE {key} = ?", (new_name,)).fetchone():
+            raise ValueError(f"{new_name!r} already exists")
+        values[key] = new_name
+    if kind in ("godowns", "cost_centres") and values.get("parent") not in (None, "", "Primary"):
+        if values["parent"] == name or not db.conn.execute(f"SELECT 1 FROM {table} WHERE name = ?", (values["parent"],)).fetchone():
+            raise ValueError(f"'{values['parent']}' cannot be the parent")
+    if values:
+        db.conn.execute(f"UPDATE {table} SET {', '.join(k + ' = ?' for k in values)} WHERE {key} = ?", list(values.values()) + [name])
+    if new_name != name:
+        for t, c in refs:
+            if not _has(db, t, c):
+                continue
+            if t in ("voucher_entry", "voucher_inventory"):
+                db.conn.execute(f"UPDATE {t} SET {c} = ? WHERE {c} = ? AND voucher_id IN (SELECT id FROM voucher WHERE company_id = ?)", (new_name, name, db.active_company_id))
+            else:
+                db.conn.execute(f"UPDATE {t} SET {c} = ? WHERE {c} = ?", (new_name, name))
+        if kind in ("godowns", "cost_centres"):
+            db.conn.execute(f"UPDATE {table} SET parent = ? WHERE parent = ?", (new_name, name))
+
+
 def detail(db, kind, name):
+    if kind in SIMPLE:
+        table, key, _fields, _refs = SIMPLE[kind]
+        row = db.conn.execute(f"SELECT * FROM {table} WHERE {key} = ?", (name,)).fetchone()
+        if row is None:
+            raise ValueError(f"{name!r} does not exist")
+        out = dict(row)
+        out["name"] = out.get(key)
+        out["used_in_vouchers"] = _simple_used(db, kind, name)
+        out["protected"] = name in PROTECTED.get(kind, ())
+        return out
     table = {"ledgers": "ledger", "stock_items": "stock_item", "groups": "account_group"}.get(kind)
     if not table:
-        raise ValueError("Masters that can be altered here: ledgers, stock items and groups")
+        raise ValueError("Masters that can be altered here: ledgers, stock items, groups, units, godowns and cost centres")
     row = db.conn.execute(f"SELECT * FROM {table} WHERE name = ?", (name,)).fetchone()
     if row is None:
         raise ValueError(f"{name!r} does not exist")
@@ -181,9 +240,11 @@ def alter(db, kind, name, changes):
                 db.conn.execute("UPDATE account_group SET parent = ? WHERE parent = ?", (new_name, name))
                 db.conn.execute("UPDATE ledger SET group_name = ? WHERE group_name = ?", (new_name, name))
                 db.conn.execute("UPDATE stock_item SET group_name = ? WHERE group_name = ?", (new_name, name))
+        elif kind in SIMPLE:
+            _simple_alter(db, kind, name, changes, new_name)
         else:
-            raise ValueError("Masters that can be altered here: ledgers, stock items and groups")
-        db._log_edit({"ledgers": "Ledger", "stock_items": "StockItem", "groups": "Group"}[kind], new_name, "ALTER",
+            raise ValueError("Masters that can be altered here: ledgers, stock items, groups, units, godowns and cost centres")
+        db._log_edit({"ledgers": "Ledger", "stock_items": "StockItem", "groups": "Group", "units": "Unit", "godowns": "Godown", "cost_centres": "CostCentre"}[kind], new_name, "ALTER",
                      f"Altered {name}" + (f" (renamed to {new_name})" if new_name != name else ""))
         db.conn.commit()
     except Exception:
@@ -215,9 +276,20 @@ def delete(db, kind, name):
             if db.conn.execute("SELECT (SELECT COUNT(*) FROM account_group WHERE parent = ?) + (SELECT COUNT(*) FROM ledger WHERE group_name = ?)", (name, name)).fetchone()[0]:
                 raise ValueError(f"Group '{name}' still has ledgers or subgroups under it")
             db.conn.execute("DELETE FROM account_group WHERE name = ?", (name,))
+        elif kind in SIMPLE:
+            table, key, _fields, _refs = SIMPLE[kind]
+            if not db.conn.execute(f"SELECT 1 FROM {table} WHERE {key} = ?", (name,)).fetchone():
+                raise ValueError(f"{name!r} does not exist")
+            if name in PROTECTED.get(kind, ()):
+                raise ValueError(f"'{name}' is the default location and cannot be deleted")
+            if _simple_used(db, kind, name):
+                raise ValueError(f"'{name}' is in use and cannot be deleted")
+            if kind in ("godowns", "cost_centres") and db.conn.execute(f"SELECT 1 FROM {table} WHERE parent = ?", (name,)).fetchone():
+                raise ValueError(f"'{name}' still has others under it")
+            db.conn.execute(f"DELETE FROM {table} WHERE {key} = ?", (name,))
         else:
-            raise ValueError("Masters that can be deleted here: ledgers, stock items and groups")
-        db._log_edit({"ledgers": "Ledger", "stock_items": "StockItem", "groups": "Group"}[kind], name, "DELETE", f"Deleted {name}")
+            raise ValueError("Masters that can be deleted here: ledgers, stock items, groups, units, godowns and cost centres")
+        db._log_edit({"ledgers": "Ledger", "stock_items": "StockItem", "groups": "Group", "units": "Unit", "godowns": "Godown", "cost_centres": "CostCentre"}[kind], name, "DELETE", f"Deleted {name}")
         db.conn.commit()
     except Exception:
         db.conn.rollback()

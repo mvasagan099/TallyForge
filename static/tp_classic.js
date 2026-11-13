@@ -8,6 +8,10 @@
     let cfg = Object.assign({}, DEFAULTS);
     try { cfg = Object.assign(cfg, JSON.parse(localStorage.getItem(KEY) || "{}")); } catch (e) { /* defaults */ }
     const $ = id => document.getElementById(id);
+    // the working period and current date (F2 / Alt+F2): kept for this browser window, like TallyPrime keeps them while a company is open
+    let period = {};
+    try { period = JSON.parse(sessionStorage.getItem("tf_period") || "{}"); } catch (e) { /* none set */ }
+    const savePeriod = () => { try { sessionStorage.setItem("tf_period", JSON.stringify(period)); } catch (e) { /* not stored */ } };
     const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 
     // ------------------------------------------------------------------------------------------------ menus
@@ -203,12 +207,12 @@
     }
     function refreshInfo() {
         const c = (typeof state !== "undefined" && state.company) || {};
-        const today = new Date().toLocaleDateString("en-IN", {weekday: "long", day: "numeric", month: "long", year: "numeric"});
+        const today = (period.date ? new Date(period.date + "T00:00:00") : new Date()).toLocaleDateString("en-IN", {weekday: "long", day: "numeric", month: "long", year: "numeric"});
         const panel = $("tp-info");
         if (!panel) return;
         panel.style.display = cfg.homePanels ? "" : "none";
         panel.innerHTML = `
-            <div class="tp-box"><div class="tp-box-h">Current Period</div><div class="tp-box-b"><strong>${esc(fmtDate(c.financial_year_from))} to ${esc(fmtDate(c.financial_year_to))}</strong></div>
+            <div class="tp-box"><div class="tp-box-h">Current Period</div><div class="tp-box-b"><strong>${esc(fmtDate(period.from || c.financial_year_from))} to ${esc(fmtDate(period.to || c.financial_year_to))}</strong></div>
                 <div class="tp-box-h">Current Date</div><div class="tp-box-b"><strong>${esc(today)}</strong></div></div>
             <div class="tp-box"><div class="tp-box-h tp-two"><span>Name of Company</span><span>Date of Last Entry</span></div>
                 <div class="tp-box-b tp-two"><strong>${esc(c.name || "")}</strong><span>${esc(c.last_voucher_date ? fmtDate(c.last_voucher_date) : "-")}</span></div></div>`;
@@ -294,6 +298,53 @@
     }
     function closeOtherVouchers() { const m = $("tp-vouchers-modal"); if (m) m.style.display = "none"; }
 
+    function openPeriodDialog() {
+        let m = $("tp-period-modal");
+        if (!m) {
+            m = document.createElement("div");
+            m.className = "modal-overlay"; m.id = "tp-period-modal";
+            m.onclick = e => { if (e.target === m) closePeriodDialog(); };
+            document.body.appendChild(m);
+        }
+        const c = (typeof state !== "undefined" && state.company) || {};
+        const input = (id, label, value) => `<label class="tp-opt"><span>${esc(label)}</span><input id="${id}" type="date" class="tally-input" value="${esc(value || "")}" style="width:190px;"></label>`;
+        m.innerHTML = `<div class="modal-dialog tp-dialog" style="width:460px;">
+            <div class="tp-dialog-h">Change Period <span style="cursor:pointer;" onclick="closePeriodDialog()">&#10005;</span></div>
+            <div style="padding:12px 16px; display:flex; flex-direction:column; gap:8px;">
+                ${input("tpp-from", "From", period.from || c.financial_year_from)}
+                ${input("tpp-to", "To", period.to || c.financial_year_to)}
+                ${input("tpp-date", "Current date (new vouchers)", period.date || "")}
+                <div id="tpp-message" style="color:var(--accent-danger); font-size:0.8rem; min-height:1.1em;"></div>
+                <div style="display:flex; gap:8px; justify-content:space-between;">
+                    <button class="btn-tally-primary" style="background:var(--surface-hover); color:var(--text-primary);" onclick="resetPeriod()">Company year</button>
+                    <span style="display:flex; gap:8px;"><button class="btn-tally-primary" onclick="savePeriodDialog()">Accept (Ctrl+A)</button>
+                    <button class="btn-tally-primary" style="background:var(--surface-hover); color:var(--text-primary);" onclick="closePeriodDialog()">Quit (Esc)</button></span></div>
+                <div style="font-size:0.72rem; color:var(--text-muted);">Reports open for this period. Leave the current date empty to use today's date.</div>
+            </div></div>`;
+        m.style.display = "flex";
+    }
+    function closePeriodDialog() { const m = $("tp-period-modal"); if (m) m.style.display = "none"; }
+    function applyPeriod() {
+        const f = $("report-from-date"), t = $("report-to-date");
+        if (f) f.value = period.from || ""; if (t) t.value = period.to || "";
+        refreshInfo();
+        if (typeof state !== "undefined" && state.currentScreen === "report" && state.currentReportName) {
+            const title = ($("report-title") && $("report-title").textContent) || state.currentReportName;
+            window.openReport(state.currentReportName, title);
+        }
+    }
+    function savePeriodDialog() {
+        const from = $("tpp-from").value, to = $("tpp-to").value, date = $("tpp-date").value;
+        if (from && to && from > to) { $("tpp-message").textContent = "The period cannot end before it starts."; return; }
+        period = {from, to, date};
+        savePeriod(); closePeriodDialog(); applyPeriod();
+    }
+    function resetPeriod() { period = {}; savePeriod(); closePeriodDialog(); applyPeriod(); }
+    window.openPeriodDialog = openPeriodDialog; window.closePeriodDialog = closePeriodDialog;
+    window.savePeriodDialog = savePeriodDialog; window.resetPeriod = resetPeriod;
+    window.openDatePrompt = openPeriodDialog;                // the F2 button and the old handler now open the period dialog
+    window.tpPeriod = () => Object.assign({}, period);
+
     function openConfig() {
         let m = $("tp-config-modal");
         if (!m) {
@@ -350,7 +401,7 @@
 
     // ------------------------------------------------------------------------------------------------ keyboard
     const MODALS = ["command-palette-modal", "goto-modal", "data-modal", "export-modal", "print-modal", "exchange-modal", "import-modal",
-        "features-modal", "help-modal", "auth-modal", "tp-config-modal", "tp-vouchers-modal", "pricelist-modal", "tp-master-modal"];
+        "features-modal", "help-modal", "auth-modal", "tp-config-modal", "tp-vouchers-modal", "pricelist-modal", "tp-master-modal", "tp-period-modal"];
     const anyModal = () => MODALS.some(id => { const e = $(id); return e && e.style.display === "flex"; });
     const companyOpen = () => { const e = $("company-modal"); return e && e.style.display === "flex"; };
     const VOUCHER_KEYS = {"Alt+F7": "Stock Journal", "Alt+F8": "Delivery Note", "Alt+F9": "Receipt Note", "Ctrl+F5": "Rejections Out",
@@ -395,7 +446,9 @@
             if ($("tp-vouchers-modal") && $("tp-vouchers-modal").style.display === "flex") return take(closeOtherVouchers);
             if ($("pricelist-modal") && $("pricelist-modal").style.display === "flex") return take(closePriceLists);
             if ($("tp-master-modal") && $("tp-master-modal").style.display === "flex") return take(closeMasterEditor);
+            if ($("tp-period-modal") && $("tp-period-modal").style.display === "flex") return take(closePeriodDialog);
         }
+        if (combo === "Ctrl+A" && $("tp-period-modal") && $("tp-period-modal").style.display === "flex") return take(savePeriodDialog);
         if ($("tp-master-modal") && $("tp-master-modal").style.display === "flex") {
             if (combo === "Ctrl+A") return take(saveMasterEditor);
             if (combo === "Alt+D") return take(deleteMaster);
@@ -404,7 +457,11 @@
 
         if (combo === "F10") return take(openOtherVouchers);
         if (combo === "F12") return take(openConfig);
-        if (combo === "Alt+F2") return take(() => openDatePrompt());
+        if (combo === "Alt+F2") return take(openPeriodDialog);
+        if (combo === "F2") return take(() => {
+            const onVoucher = typeof state !== "undefined" && state.currentScreen === "voucher" && $("vch-date");
+            if (onVoucher) { $("vch-date").focus(); if ($("vch-date").select) $("vch-date").select(); } else openPeriodDialog();
+        });
         if (combo === "Alt+F3") return take(() => openCompanyModal());
         if (combo === "Ctrl+F3") return take(() => shutActiveCompany());
         if (combo === "Ctrl+F1") return take(() => openHelpModal());
@@ -451,7 +508,20 @@
             const original = window.openVoucherEntry;
             window.openVoucherEntry = function (type, standardOnly) {
                 if (!cfg.invoiceMode && standardOnly === undefined && ["Sales", "Purchase", "Credit Note", "Debit Note"].includes(type)) standardOnly = true;
-                return original.call(this, type, standardOnly);
+                const result = original.call(this, type, standardOnly);
+                if (period.date && $("vch-date")) $("vch-date").value = period.date;      // the current date set with F2
+                return result;
+            };
+        }
+        if (typeof window.openReport === "function") {
+            const originalReport = window.openReport;
+            window.openReport = function (name, title, from, to) {
+                if (period.from || period.to) {
+                    const f = $("report-from-date"), t = $("report-to-date");
+                    if (f && period.from && from === undefined) f.value = period.from;
+                    if (t && period.to && to === undefined) t.value = period.to;
+                }
+                return originalReport.apply(this, arguments);
             };
         }
         let inSave = false;

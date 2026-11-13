@@ -113,6 +113,42 @@ class MasterEditTests(unittest.TestCase):
         status, body = get_route('/api/masters/detail', {'type': ['ledgers'], 'name': ['Spare']}, self.db, None)
         self.assertEqual((status, body['credit_limit']), (200, 5.0))
 
+    # units, godowns and cost centres ---------------------------------------------------------------------------
+    def test_units_follow_their_stock_items_and_a_unit_in_use_cannot_be_deleted(self):
+        masters_edit.alter(self.db, 'units', 'Kg', {'new_name': 'KGS', 'formal_name': 'Kilograms', 'decimal_places': 2})
+        self.assertEqual(masters_edit.detail(self.db, 'stock_items', 'Rice')['uom_symbol'], 'KGS')
+        self.assertEqual((masters_edit.detail(self.db, 'units', 'KGS')['formal_name'], masters_edit.detail(self.db, 'units', 'KGS')['used_in_vouchers']), ('Kilograms', True))
+        with self.assertRaisesRegex(ValueError, 'in use'):
+            masters_edit.delete(self.db, 'units', 'KGS')
+        with self.assertRaisesRegex(ValueError, 'between 0 and 5'):
+            masters_edit.alter(self.db, 'units', 'KGS', {'decimal_places': 9})
+
+    def test_a_renamed_godown_moves_the_stock_lines_and_the_default_one_is_protected(self):
+        self.db.add_godown('Store A', 'Chennai')
+        save_invoice(self.db, {'voucher_type': 'Sales', 'date': '2026-05-11', 'party_ledger': 'Buyer', 'sales_ledger': 'Sales',
+                               'items': [{'stock_item_name': 'Rice', 'qty': 1, 'rate': 60, 'godown_name': 'Store A'}]})
+        masters_edit.alter(self.db, 'godowns', 'Store A', {'new_name': 'Store B', 'location': 'Madurai'})
+        names = [r[0] for r in self.db.conn.execute('SELECT DISTINCT godown_name FROM voucher_inventory')]
+        self.assertIn('Store B', names)
+        self.assertNotIn('Store A', names)
+        self.assertEqual(masters_edit.detail(self.db, 'godowns', 'Store B')['location'], 'Madurai')
+        with self.assertRaisesRegex(ValueError, 'default location'):
+            masters_edit.alter(self.db, 'godowns', 'Main Location', {'new_name': 'Head Office'})
+        with self.assertRaisesRegex(ValueError, 'in use'):
+            masters_edit.delete(self.db, 'godowns', 'Store B')
+        with self.assertRaisesRegex(ValueError, 'cannot be the parent'):
+            masters_edit.alter(self.db, 'godowns', 'Store B', {'parent': 'Store B'})
+
+    def test_cost_centres_can_be_renamed_and_deleted_when_unused(self):
+        self.db.conn.execute("INSERT INTO cost_centre(name, category_name, parent) VALUES ('North', 'Regions', 'Primary')")
+        self.db.conn.execute("INSERT INTO cost_centre(name, category_name, parent) VALUES ('North-1', 'Regions', 'North')")
+        masters_edit.alter(self.db, 'cost_centres', 'North', {'new_name': 'North Zone'})
+        self.assertEqual(masters_edit.detail(self.db, 'cost_centres', 'North-1')['parent'], 'North Zone')
+        with self.assertRaisesRegex(ValueError, 'still has'):
+            masters_edit.delete(self.db, 'cost_centres', 'North Zone')
+        masters_edit.delete(self.db, 'cost_centres', 'North-1')
+        masters_edit.delete(self.db, 'cost_centres', 'North Zone')
+
 
 if __name__ == '__main__':
     unittest.main()
