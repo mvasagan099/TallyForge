@@ -26,7 +26,7 @@ let state = {
     gatewayItems: [],
     voucherType: "Payment",
     currentReportName: "",
-    selectedLedgerName: "Customer ABC Pvt Ltd",
+    selectedLedgerName: "",
     calcHistory: []
 };
 
@@ -447,7 +447,7 @@ async function openReport(reportName, reportTitle, fromDate, toDate) {
     try {
         let url = `/api/report/${encodeURIComponent(reportName)}`;
         const params = [];
-        if (reportName.toLowerCase().includes("generalledger")) {
+        if (reportName.toLowerCase().includes("generalledger") && state.selectedLedgerName) {
             params.push(`ledger=${encodeURIComponent(state.selectedLedgerName)}`);
         }
         if (fDate) params.push(`from_date=${encodeURIComponent(fDate)}`);
@@ -509,6 +509,10 @@ function populateReportLedgerSelect() {
 }
 
 function renderReportTable(reportData, reportName) {
+    // a drill inside a ledger report (summary, month) has its own title
+    if (/ledger|cashbank/i.test(reportName || "") && reportData && reportData.title && document.getElementById("report-title")) {
+        document.getElementById("report-title").textContent = reportData.title;
+    }
     const thead = document.getElementById("report-table-head");
     const tbody = document.getElementById("report-table-body");
     thead.innerHTML = "";
