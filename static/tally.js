@@ -1580,7 +1580,7 @@ async function openMasters(type) {
                 <td><strong>${i.name}</strong></td>
                 <td>${i.group_name}</td>
                 <td>${i.uom_symbol}</td>
-                <td>${i.hsn_code || '84433100'}</td>
+                <td>${i.hsn_code || '-'}</td>
                 <td>${i.gst_rate || 18}%</td>
                 <td style="text-align:right;">${i.closing_qty}</td>
                 <td style="text-align:right; font-weight:bold;">₹${i.closing_value.toLocaleString()}</td>
@@ -2014,7 +2014,7 @@ async function createMasterPromptFallback() {
         const name = prompt("Enter Stock Item Name:");
         if (!name) return;
         const uom = prompt("Unit of Measure (Nos, Pcs, Box, Kg):", "Nos") || "Nos";
-        const hsn = prompt("HSN Code:", "84433100") || "84433100";
+        const hsn = prompt("HSN Code (leave blank if not known):", "") || "";
         const gstRate = parseFloat(prompt("GST Rate % (e.g. 18, 12, 5):", "18") || "18");
         const opQty = parseFloat(prompt("Opening Quantity:", "0") || "0");
         const opRate = parseFloat(prompt("Opening Rate (₹):", "0") || "0");
