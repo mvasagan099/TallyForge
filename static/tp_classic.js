@@ -350,7 +350,7 @@
 
     // ------------------------------------------------------------------------------------------------ keyboard
     const MODALS = ["command-palette-modal", "goto-modal", "data-modal", "export-modal", "print-modal", "exchange-modal", "import-modal",
-        "features-modal", "help-modal", "auth-modal", "tp-config-modal", "tp-vouchers-modal", "pricelist-modal"];
+        "features-modal", "help-modal", "auth-modal", "tp-config-modal", "tp-vouchers-modal", "pricelist-modal", "tp-master-modal"];
     const anyModal = () => MODALS.some(id => { const e = $(id); return e && e.style.display === "flex"; });
     const companyOpen = () => { const e = $("company-modal"); return e && e.style.display === "flex"; };
     const VOUCHER_KEYS = {"Alt+F7": "Stock Journal", "Alt+F8": "Delivery Note", "Alt+F9": "Receipt Note", "Ctrl+F5": "Rejections Out",
@@ -394,6 +394,11 @@
             if ($("tp-config-modal") && $("tp-config-modal").style.display === "flex") return take(closeConfig);
             if ($("tp-vouchers-modal") && $("tp-vouchers-modal").style.display === "flex") return take(closeOtherVouchers);
             if ($("pricelist-modal") && $("pricelist-modal").style.display === "flex") return take(closePriceLists);
+            if ($("tp-master-modal") && $("tp-master-modal").style.display === "flex") return take(closeMasterEditor);
+        }
+        if ($("tp-master-modal") && $("tp-master-modal").style.display === "flex") {
+            if (combo === "Ctrl+A") return take(saveMasterEditor);
+            if (combo === "Alt+D") return take(deleteMaster);
         }
         if (combo === "Ctrl+A" && $("tp-config-modal") && $("tp-config-modal").style.display === "flex") return take(saveConfig);
 

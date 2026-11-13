@@ -39,6 +39,13 @@ class ClassicShellTests(unittest.TestCase):
         for option in ('style', 'homePanels', 'buttonBar', 'invoiceMode', 'acceptPrompt'):
             self.assertGreaterEqual(len(re.findall(rf'cfg\.{option}\b', self.js)), 2, option)
 
+    def test_the_masters_editor_is_wired_in(self):
+        self.assertIn('/static/masters_edit.js', self.html)
+        editor = (STATIC / 'masters_edit.js').read_text(encoding='utf-8')
+        for route in ('/api/masters/detail', '/api/masters/alter', '/api/masters/delete'):
+            self.assertIn(route, editor)
+        self.assertIn('"tp-master-modal"', self.js)        # Esc closes the editor instead of leaving the screen
+
 
 if __name__ == '__main__':
     unittest.main()
