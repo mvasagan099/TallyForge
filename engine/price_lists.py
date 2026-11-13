@@ -62,8 +62,8 @@ def set_rates(db, name, rows):
         if not db._valid_iso_date(when or ""):
             raise ValueError(f"Invalid effective date '{when}': use YYYY-MM-DD")
         rate = float(r.get("rate") or 0)
-        if rate < 0:
-            raise ValueError(f"Rate of '{item}' cannot be negative")
+        if rate <= 0:
+            raise ValueError(f"Give a rate above zero for '{item}'")
         lo = float(r.get("qty_from") or 0)
         hi = r.get("qty_to")
         hi = float(hi) if hi not in (None, "") else None

@@ -13,6 +13,7 @@ import json
 from decimal import Decimal, ROUND_HALF_UP
 
 from engine import orders, price_lists
+from engine.einvoice_check import clean_vehicle_no
 from engine.gst_entry import suggest_gst
 
 CENT = Decimal("0.01")
@@ -50,6 +51,9 @@ def build_invoice(db, data):
         raise ValueError(f"Party ledger '{party}' does not exist")
     if not book or not db.conn.execute("SELECT 1 FROM ledger WHERE name = ?", (book,)).fetchone():
         raise ValueError(f"{'Sales' if ITEM_SIDE[vtype] == 'Cr' else 'Purchase'} ledger '{book}' does not exist")
+    clean_vehicle_no(data.get("vehicle_no"))                       # a malformed vehicle number is refused before anything is saved
+    if data.get("distance_km") not in (None, "") and float(data["distance_km"]) < 0:
+        raise ValueError("Transport distance cannot be negative")
     raw_items = data.get("items") or []
     if not raw_items:
         raise ValueError("An invoice needs at least one item line")
@@ -233,9 +237,11 @@ def save_invoice(db, data):
         if built["allocations"]:
             orders.record_allocations(db, vid, built["allocations"])
     ref = data.get("reference_no")
-    if ref or data.get("vehicle_no"):
-        db.conn.execute("UPDATE voucher SET reference_no = COALESCE(NULLIF(?, ''), reference_no), vehicle_no = COALESCE(NULLIF(?, ''), vehicle_no) WHERE id = ?",
-                        (ref or "", data.get("vehicle_no") or "", vid))
+    if ref or data.get("vehicle_no") or data.get("transporter_id") or data.get("distance_km"):
+        db.conn.execute("UPDATE voucher SET reference_no = COALESCE(NULLIF(?, ''), reference_no), vehicle_no = COALESCE(NULLIF(?, ''), vehicle_no), "
+                        "transporter_id = COALESCE(NULLIF(?, ''), transporter_id), distance_km = COALESCE(NULLIF(?, 0), distance_km) WHERE id = ?",
+                        (ref or "", clean_vehicle_no(data.get("vehicle_no")), (data.get("transporter_id") or "").strip(),
+                         float(data.get("distance_km") or 0), vid))
     details = {k: data[k] for k in ("place_of_supply", "order_ref", "shipped_by", "destination", "consignee_name", "consignee_gstin", "consignee_state")
                if data.get(k)}
     party = db.conn.execute("SELECT gstin, state FROM ledger WHERE name = ?", (built["party_ledger"],)).fetchone()

@@ -903,6 +903,28 @@ class TDLRuntime:
 
         # 5. Bank Reconciliation Statement (BRS)
         elif "brs" in name_lower or "bankrecon" in name_lower:
+            from engine import bank_recon
+            ledger = kwargs.get("ledger") or (bank_recon.bank_ledgers(self.db) or [""])[0]
+            if ledger:
+                st = bank_recon.statement(self.db, ledger, kwargs.get("to_date") or None)
+                money = lambda v: f"{abs(v):,.2f} {'Dr' if v >= 0 else 'Cr'}"
+                lines = [{"name": "Header", "fields": [
+                    {"name": "Date", "display_value": "Vch Date", "width": 12, "align": "left"}, {"name": "VchNo", "display_value": "Voucher No", "width": 14, "align": "left"},
+                    {"name": "Type", "display_value": "Type", "width": 14, "align": "left"}, {"name": "Chq", "display_value": "Instrument No", "width": 16, "align": "left"},
+                    {"name": "Amt", "display_value": "Amount not reflected in bank (₹)", "width": 30, "align": "right"}]}]
+                cell = lambda *vals: [{"name": n, "display_value": v, "width": w, "align": "right" if n == "Amt" else "left"}
+                                      for (n, w), v in zip((("Date", 12), ("VchNo", 14), ("Type", 14), ("Chq", 16), ("Amt", 30)), vals)]
+                lines.append({"name": "Row", "fields": cell(f"As on {st['as_of']}", ledger, "", "", "")})
+                lines.append({"name": "Row", "fields": cell("", "Balance as per company books", "", "", money(st["book_balance"]))})
+                for p in st["pending"][-200:]:
+                    lines.append({"name": "Row", "bank_mark": {"voucher_id": p["voucher_id"], "ledger": ledger},
+                                  "fields": cell(p["date"], p["voucher_number"], p["voucher_type"], p["instrument_no"] or "-", f"{p['amount']:,.2f} {p['side']}")})
+                if len(st["pending"]) > 200:
+                    lines.append({"name": "Row", "fields": cell("", f"(latest 200 of {len(st['pending'])} pending entries shown)", "", "", "")})
+                lines.append({"name": "Row", "fields": cell("", "Amounts not reflected in bank: debits", "", "", f"{st['unreflected_debits']:,.2f}")})
+                lines.append({"name": "Row", "fields": cell("", "Amounts not reflected in bank: credits", "", "", f"{st['unreflected_credits']:,.2f}")})
+                lines.append({"name": "Total", "fields": cell("", "Balance as per bank", "", "", money(st["bank_balance"]))})
+                return {"report": report_name, "title": f"Bank Reconciliation Statement ({ledger})", "parts": [{"name": "BRSPart", "lines": lines}], "company": company}
             brs = self.db.get_bank_reconciliation("HDFC Bank")
             lines = [
                 {"name": "Header", "fields": [
