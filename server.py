@@ -319,6 +319,7 @@ class TallyRequestHandler(BaseHTTPRequestHandler):
                 # 1. Reports match
                 reports = [
                     {"label": "Balance Sheet", "action": "Display", "target": "BalanceSheet", "category": "Report"},
+                    {"label": "GST Summary (outward / inward by rate)", "action": "Display", "target": "GSTSummary", "category": "Report"},
                     {"label": "Purchase Orders (pending)", "action": "Display", "target": "PurchaseOrders", "category": "Report"},
                     {"label": "Sales Orders (pending)", "action": "Display", "target": "SalesOrders", "category": "Report"},
                     {"label": "Group Summary", "action": "Display", "target": "GroupSummary", "category": "Report"},
