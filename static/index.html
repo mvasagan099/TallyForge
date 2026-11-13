@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TallyForge — Reverse Engineered. Rebuilt. Reimagined.</title>
     <link rel="stylesheet" href="/static/tally.css">
+    <link rel="stylesheet" href="/static/tp_classic.css">
 </head>
 <body class="tf-app-shell">
 
@@ -885,7 +886,7 @@
         <!-- 2C. CONTEXTUAL ACTION PANEL (F1 - F12 Sticky Shortcuts Bar) -->
         <aside class="tally-fkey-sidebar">
             <button class="fkey-btn" onclick="openHelpModal()"><span class="fkey-label">F1</span>Help</button>
-            <button class="fkey-btn" onclick="openDatePrompt()"><span class="fkey-label">F2</span>Date</button>
+            <button class="fkey-btn" onclick="openDatePrompt()"><span class="fkey-label">F2</span>Period</button>
             <button class="fkey-btn" onclick="openCompanyModal()"><span class="fkey-label">F3</span>Company</button>
             <button class="fkey-btn" onclick="openVoucherEntry('Contra')"><span class="fkey-label">F4</span>Contra</button>
             <button class="fkey-btn" onclick="openVoucherEntry('Payment')"><span class="fkey-label">F5</span>Payment</button>
@@ -893,13 +894,17 @@
             <button class="fkey-btn" onclick="openVoucherEntry('Journal')"><span class="fkey-label">F7</span>Journal</button>
             <button class="fkey-btn" onclick="openVoucherEntry('Sales')"><span class="fkey-label">F8</span>Sales</button>
             <button class="fkey-btn" onclick="openVoucherEntry('Purchase')"><span class="fkey-label">F9</span>Purchase</button>
-            <button class="fkey-btn" onclick="openMasters('stock_items')"><span class="fkey-label">F10</span>Stock Items</button>
+            <button class="fkey-btn" onclick="openOtherVouchers()"><span class="fkey-label">F10</span>Other Vouchers</button>
             <button class="fkey-btn" onclick="openVoucherEntry('Debit Note')"><span class="fkey-label">Alt+F5</span>Dr Note</button>
             <button class="fkey-btn" onclick="openVoucherEntry('Credit Note')"><span class="fkey-label">Alt+F6</span>Cr Note</button>
-            <button class="fkey-btn" onclick="runManufacturingPrompt()"><span class="fkey-label">Alt+F7</span>Mfg BOM</button>
+            <button class="fkey-btn" onclick="openVoucherEntry('Stock Journal')"><span class="fkey-label">Alt+F7</span>Stock Journal</button>
+            <button class="fkey-btn" onclick="openVoucherEntry('Delivery Note')"><span class="fkey-label">Alt+F8</span>Delivery Note</button>
+            <button class="fkey-btn" onclick="openVoucherEntry('Receipt Note')"><span class="fkey-label">Alt+F9</span>Receipt Note</button>
+            <button class="fkey-btn" onclick="openVoucherEntry('Sales Order')"><span class="fkey-label">Ctrl+F8</span>Sales Order</button>
+            <button class="fkey-btn" onclick="openVoucherEntry('Purchase Order')"><span class="fkey-label">Ctrl+F9</span>Purchase Order</button>
             <button class="fkey-btn" onclick="runPayrollPrompt()"><span class="fkey-label">Ctrl+F4</span>Payroll</button>
             <button class="fkey-btn" onclick="openFeaturesModal()"><span class="fkey-label">F11</span>Features</button>
-            <button class="fkey-btn" onclick="openTDLStudio()"><span class="fkey-label">F12</span>TDL Studio</button>
+            <button class="fkey-btn" onclick="openConfig()"><span class="fkey-label">F12</span>Configure</button>
             <button class="fkey-btn" onclick="goBackToGateway()"><span class="fkey-label">Esc</span>Dashboard</button>
         </aside>
 
@@ -1960,6 +1965,7 @@
     </div>
     <!-- Script Entrypoint -->
     <script src="/static/tally.js"></script>
+    <script src="/static/tp_classic.js"></script>
     <script src="/static/company-operations.js"></script>
     <script src="/static/tally-native.js"></script>
     <script src="/static/tally-exchange.js"></script>

@@ -1,0 +1,89 @@
+/* Classic (TallyPrime-style) look: light page, blue title and menu headers, gold selection bar, Gateway of Tally in the middle. */
+:root[data-theme="classic"] {
+    --bg-primary: #e8f1f7;
+    --bg-secondary: #f6fafd;
+    --surface: #ffffff;
+    --surface-card: #ffffff;
+    --surface-subtle: #dbe9f3;
+    --surface-hover: #cfe2f0;
+    --surface-active: #ffd75e;
+    --border-color: #9db9cc;
+    --border-subtle: #c3d6e3;
+    --border-focus: #0b6a9d;
+    --accent-primary: #0b6a9d;
+    --accent-primary-hover: #08557f;
+    --accent-primary-subtle: rgba(11, 106, 157, 0.12);
+    --accent-secondary: #2f7fb0;
+    --accent-secondary-subtle: rgba(47, 127, 176, 0.12);
+    --accent-warning: #d98a00;
+    --accent-danger: #c62828;
+    --text-primary: #0d2433;
+    --text-secondary: #35506a;
+    --text-muted: #5f7a90;
+    --text-inverse: #ffffff;
+    --card-shadow: 0 1px 3px rgba(13, 36, 51, 0.25);
+    --modal-shadow: 0 6px 20px rgba(13, 36, 51, 0.35);
+    --font-sans: "Segoe UI", Tahoma, Arial, sans-serif;
+    --tally-teal: #0b6a9d; --tally-darkteal: #dbe9f3; --tally-midteal: #ffffff; --tally-lightteal: #e8f1f7;
+    --tally-border: #9db9cc; --tally-yellow: #ffd75e; --tally-hotkey: #b3261e; --tally-active-bg: #ffd75e; --tally-active-text: #0d2433;
+    --tally-sidebar-bg: #e8f1f7; --tally-btn-border: #9db9cc;
+}
+
+/* Classic layout: no sidebar or dashboard cards on the Gateway of Tally */
+body.tp-classic .tf-sidebar,
+body.tp-classic .tf-tagline-badge,
+body.tp-classic .tf-search-trigger,
+body.tp-classic .tf-status-pill,
+body.tp-classic #theme-toggle-btn { display: none !important; }
+body.tp-classic:not(.tp-show-dashboard) #dashboard-screen { display: none !important; }
+body.tp-classic .tf-topbar { background: #0b4f73; border-bottom: 2px solid #083a55; color: #fff; }
+body.tp-classic .tf-brand-logo span, body.tp-classic .tf-company-pill, body.tp-classic .tf-fy-badge { color: #fff; }
+body.tp-classic .tf-company-pill { background: rgba(255, 255, 255, 0.12); border-color: rgba(255, 255, 255, 0.35); }
+body.tp-classic .tf-brand-icon { background: #ffd75e; color: #0b4f73; }
+body.tp-classic .top-menu-btn { color: #fff; background: transparent; border-color: transparent; }
+body.tp-classic .top-menu-btn:hover { background: rgba(255, 255, 255, 0.18); }
+body.tp-classic .top-menu-btn .underline { color: #ffd75e; text-decoration: underline; }
+body.tp-classic .tally-bottom-status-bar { background: #0b4f73; color: #fff; border-top: 2px solid #083a55; }
+body.tp-classic .tally-bottom-status-bar #breadcrumb { color: #fff !important; font-weight: 600; }
+body.tp-classic .tally-bottom-status-bar strong { color: #ffd75e !important; }
+body.tp-classic .tally-fkey-sidebar { background: #dbe9f3; border-left: 1px solid #9db9cc; }
+body.tp-classic .fkey-btn { background: #f6fafd; color: #0d2433; border: 1px solid #9db9cc; }
+body.tp-classic .fkey-btn:hover { background: #ffd75e; }
+body.tp-classic .fkey-btn .fkey-label { color: #b3261e; font-weight: 700; }
+body.tp-no-buttonbar .tally-fkey-sidebar { display: none !important; }
+
+/* Gateway of Tally */
+.tp-home { flex: 1; align-items: flex-start; justify-content: center; gap: 28px; padding: 28px 24px; overflow: auto; background: var(--bg-primary); }
+.tp-info { display: flex; flex-direction: column; gap: 14px; width: 340px; }
+.tp-box { background: #fff; border: 1px solid #9db9cc; box-shadow: var(--card-shadow); }
+.tp-box-h { background: #0b6a9d; color: #fff; font-size: 0.72rem; letter-spacing: 0.04em; text-transform: uppercase; padding: 4px 10px; }
+.tp-box-b { padding: 8px 10px 10px; font-size: 0.85rem; color: var(--text-primary); }
+.tp-two { display: flex; justify-content: space-between; gap: 10px; }
+.tp-gateway { width: 360px; background: #fff; border: 1px solid #5d8fb0; box-shadow: var(--card-shadow); display: flex; flex-direction: column; max-height: calc(100vh - 190px); }
+.tp-gw-h { background: #0b6a9d; color: #fff; text-align: center; font-weight: 600; padding: 7px 10px; font-size: 0.95rem; }
+.tp-menu { list-style: none; margin: 0; padding: 6px 0 10px; overflow: auto; }
+.tp-section { font-weight: 700; color: #0b4f73; padding: 8px 16px 2px; font-size: 0.82rem; }
+.tp-item { display: flex; justify-content: space-between; align-items: center; padding: 3px 16px 3px 30px; cursor: pointer; font-size: 0.88rem; color: var(--text-primary); }
+.tp-item em { font-style: normal; color: #5f7a90; font-size: 0.74rem; }
+.tp-item u { text-decoration: underline; color: #b3261e; font-weight: 700; }
+.tp-item:hover { background: #fff3c4; }
+.tp-item.tp-sel { background: #ffd75e; color: #0d2433; font-weight: 600; }
+
+/* dialogs of the classic shell */
+.tp-dialog { background: #fff; border: 1px solid #5d8fb0; }
+.tp-dialog-h { background: #0b6a9d; color: #fff; padding: 7px 14px; font-weight: 600; display: flex; justify-content: space-between; }
+.tp-opt { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 0.82rem; color: var(--text-primary); }
+.tp-opt select { width: 190px; }
+#tp-vouchers-modal .tp-menu { max-height: 70vh; }
+
+/* a single, compact top menu row like TallyPrime's */
+body.tp-classic .tf-topbar { gap: 8px; overflow: hidden; }
+body.tp-classic .tally-top-menu { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: nowrap; overflow: hidden; gap: 0; }
+body.tp-classic .top-menu-btn { display: inline-flex; align-items: baseline; gap: 0; white-space: nowrap; padding: 4px 8px; font-size: 0.8rem; flex: 0 0 auto; }
+body.tp-classic .top-menu-btn .underline { margin-right: 0; }
+body.tp-classic .tf-brand-cluster { flex: 0 0 auto; }
+body.tp-classic .tf-top-actions { flex: 0 0 auto; }
+@media (max-width: 1250px) {
+    body.tp-classic .tf-top-pills { display: none; }
+    body.tp-classic .tf-top-actions button[title^="Calculator"] { display: none; }
+}
