@@ -289,9 +289,9 @@ function setupKeyboardListeners() {
         if (e.key === "F7" && !e.altKey) { e.preventDefault(); openVoucherEntry("Journal"); return; }
         if (e.key === "F8" && !e.altKey) { e.preventDefault(); openVoucherEntry("Sales"); return; }
         if (e.key === "F9" && !e.altKey) { e.preventDefault(); openVoucherEntry("Purchase"); return; }
-        if (e.key === "F10") { e.preventDefault(); openMasters("stock_items"); return; }
+        if (e.key === "F10") { e.preventDefault(); if (typeof openOtherVouchers === "function") openOtherVouchers(); return; }
         if (e.key === "F11") { e.preventDefault(); openFeaturesModal(); return; }
-        if (e.key === "F12") { e.preventDefault(); openTDLStudio(); return; }
+        if (e.key === "F12") { e.preventDefault(); if (typeof openConfig === "function") openConfig(); return; }
 
         // Gateway Screen Hotkeys
         const isInputFocused = ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName);
@@ -4515,7 +4515,9 @@ const COMMAND_REGISTRY = [
     { title: "GSTR-3B Monthly Return", category: "Statutory", shortcut: "3", action: () => openReport("GSTR3B", "GSTR-3B Monthly Return") },
     { title: "GSTR-9 Annual Return", category: "Statutory", shortcut: "9", action: () => openReport("GSTR9", "GSTR-9 Annual Return") },
     { title: "Payroll Pay Sheet", category: "Payroll", shortcut: "Ctrl+F4", action: () => openReport("PayrollSummary", "Payroll Pay Sheet") },
-    { title: "TDL Studio (Live Code Editor)", category: "Developer", shortcut: "F12", action: () => openTDLStudio() },
+    { title: "TDL Studio (Live Code Editor)", category: "Developer", shortcut: "", action: () => openTDLStudio() },
+    { title: "Configuration (interface, voucher entry)", category: "Setup", shortcut: "F12", action: () => openConfig() },
+    { title: "Other Vouchers (change voucher type)", category: "Voucher", shortcut: "F10", action: () => openOtherVouchers() },
     { title: "Statutory Audit Trail (Edit Log)", category: "Statutory", shortcut: "E", action: () => openReport("AuditEditLog", "Statutory Audit (Edit Log)") },
     { title: "Company Management & Switching", category: "Company", shortcut: "F3", action: () => openCompanyModal() },
     { title: "Data Backup (SHA-256 Chained)", category: "Data", shortcut: "Alt+Y", action: () => openDataModal() },

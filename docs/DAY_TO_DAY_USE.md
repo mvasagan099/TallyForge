@@ -35,6 +35,18 @@ Good to know (tested):
 You can also import from an export folder (`Master.xml`, `DayBook.xml`) or replay a saved capture with no
 TallyPrime running; both are on the same screen.
 
+## The screen
+TallyForge opens on the Gateway of Tally, laid out like TallyPrime: use the arrow keys and Enter, or press the underlined
+letter of a menu item. Esc goes back one level. The path at the bottom shows where you are. F12 opens Configuration
+(interface style, panels, button bar, invoice mode, the "Accept?" question). Choose *Dashboard* under Reports for the
+overview cards, or set the interface style to Modern in F12 to get the old layout back.
+
+Keys that match TallyPrime: F2 period, F3 or Alt+F3 company, F4 Contra, F5 Payment, F6 Receipt, F7 Journal, F8 Sales,
+F9 Purchase, F10 Other Vouchers, F11 Features, F12 Configure, Alt+F5 Debit Note, Alt+F6 Credit Note, Alt+F7 Stock Journal,
+Alt+F8 Delivery Note, Alt+F9 Receipt Note, Ctrl+F5 Rejection Out, Ctrl+F6 Rejection In, Ctrl+F7 Physical Stock,
+Ctrl+F8 Sales Order, Ctrl+F9 Purchase Order, Ctrl+A accept, Ctrl+Q back, Alt+G or Ctrl+K go to, Alt+X cancel and Alt+D delete
+an open voucher, Ctrl+H switch between invoice and voucher mode, Ctrl+E export, Alt+M share.
+
 ## Everyday work
 | To do this | Use |
 | --- | --- |
