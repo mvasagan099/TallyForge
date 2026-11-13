@@ -1119,7 +1119,7 @@ class TallyRequestHandler(BaseHTTPRequestHandler):
             name = data.get("name", "").strip()
             group_name = data.get("group_name", "Primary").strip()
             uom_symbol = data.get("uom_symbol", "Nos").strip()
-            hsn = data.get("hsn_code", "84433100")
+            hsn = data.get("hsn_code", "")
             rate = float(data.get("gst_rate", 18.0))
             op_qty = float(data.get("opening_qty", 0.0))
             op_rate = float(data.get("opening_rate", 0.0))

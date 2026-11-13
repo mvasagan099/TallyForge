@@ -1632,7 +1632,7 @@ class EnterpriseAccountingDB(ReliabilityMixin):
         itm.update(self.get_stock_item_summary(name))
         return itm
 
-    def add_stock_item(self, name: str, group_name: str = "Primary", uom_symbol: str = "Pcs", hsn_code: str = "84433100",
+    def add_stock_item(self, name: str, group_name: str = "Primary", uom_symbol: str = "Pcs", hsn_code: str = "",
                        gst_rate: float = 18.0, opening_qty: float = 0.0, opening_rate: float = 0.0, godown_name: str = "Main Location", **kwargs) -> bool:
         self.require_feature('maintain-inv')
         if "uom_name" in kwargs:
@@ -2072,7 +2072,7 @@ class EnterpriseAccountingDB(ReliabilityMixin):
                     if not cursor.fetchone():
                         if strict:
                             raise ValueError(f"Stock item '{s_name}' does not exist: create it before using it in a voucher")
-                        self.add_stock_item(s_name, "Primary", "Nos", "84433100", 18.0)
+                        self.add_stock_item(s_name, "Primary", "Nos", "", 18.0)
                     if not allow_neg:
                         direction = inv.get("direction", "Out" if voucher_type in self.STOCK_OUT_TYPES else "In")
                         if direction == "Out":
@@ -2655,7 +2655,7 @@ class EnterpriseAccountingDB(ReliabilityMixin):
             tx_val = float(to_dec(row["total_val"]))
             hsn_data.append({
                 "num": idx,
-                "hsn_sc": row["hsn_code"] or "84433100",
+                "hsn_sc": row["hsn_code"] or "",
                 "desc": row["name"],
                 "uqc": row["uom_symbol"] or "NOS",
                 "qty": float(to_qty_dec(row["total_qty"])),
