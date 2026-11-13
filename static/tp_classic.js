@@ -4,7 +4,8 @@
 (function () {
     "use strict";
     const KEY = "tf_ui_settings";
-    const DEFAULTS = {style: "classic", homePanels: true, acceptPrompt: true, invoiceMode: true, buttonBar: true};
+    const DEFAULTS = {style: "classic", homePanels: true, acceptPrompt: true, invoiceMode: true, buttonBar: true,
+        reportCompact: false, reportHideNil: false, showNarration: true};
     let cfg = Object.assign({}, DEFAULTS);
     try { cfg = Object.assign(cfg, JSON.parse(localStorage.getItem(KEY) || "{}")); } catch (e) { /* defaults */ }
     const $ = id => document.getElementById(id);
@@ -257,6 +258,7 @@
         return [head].concat(levels).join(" > ");
     }
     let writing = false;
+    let applying = false;
     function updatePath() {
         const el = $("breadcrumb");
         if (!el || !document.body.classList.contains("tp-classic")) return;
@@ -353,31 +355,40 @@
             m.onclick = e => { if (e.target === m) closeConfig(); };
             document.body.appendChild(m);
         }
+        const screen = (typeof state !== "undefined" && state.currentScreen) || "gateway";
         const yn = (id, label, value) => `<label class="tp-opt"><span>${esc(label)}</span><select id="${id}" class="tally-input"><option value="1"${value ? " selected" : ""}>Yes</option><option value="0"${value ? "" : " selected"}>No</option></select></label>`;
-        m.innerHTML = `<div class="modal-dialog tp-dialog" style="width:560px;">
-            <div class="tp-dialog-h">Configuration <span style="cursor:pointer;" onclick="closeConfig()">&#10005;</span></div>
-            <div style="padding:12px 16px; display:flex; flex-direction:column; gap:8px;">
-                <label class="tp-opt"><span>Interface style</span><select id="tpc-style" class="tally-input">
-                    <option value="classic"${cfg.style === "classic" ? " selected" : ""}>Classic (TallyPrime)</option>
-                    <option value="modern"${cfg.style === "modern" ? " selected" : ""}>Modern dashboard</option></select></label>
-                ${yn("tpc-panels", "Show period, date and company panels on the Gateway of Tally", cfg.homePanels)}
-                ${yn("tpc-buttons", "Show the right-hand button bar (function keys)", cfg.buttonBar)}
-                ${yn("tpc-invoice", "Use invoice mode for Sales, Purchase, Credit Note and Debit Note", cfg.invoiceMode)}
-                ${yn("tpc-accept", "Ask \"Accept?\" before saving a voucher", cfg.acceptPrompt)}
+        const general = `<div class="tp-section" style="padding-left:0;">General</div>
+            <label class="tp-opt"><span>Interface style</span><select id="tpc-style" class="tally-input">
+                <option value="classic"${cfg.style === "classic" ? " selected" : ""}>Classic (TallyPrime)</option>
+                <option value="modern"${cfg.style === "modern" ? " selected" : ""}>Modern dashboard</option></select></label>
+            ${yn("tpc-panels", "Show period, date and company panels on the Gateway of Tally", cfg.homePanels)}
+            ${yn("tpc-buttons", "Show the right-hand button bar (function keys)", cfg.buttonBar)}`;
+        const vouchers = `<div class="tp-section" style="padding-left:0;">Voucher entry</div>
+            ${yn("tpc-invoice", "Use invoice mode for Sales, Purchase, Credit Note and Debit Note", cfg.invoiceMode)}
+            ${yn("tpc-accept", "Ask \"Accept?\" before saving a voucher", cfg.acceptPrompt)}
+            ${yn("tpc-narration", "Show the narration field", cfg.showNarration)}`;
+        const reports = `<div class="tp-section" style="padding-left:0;">Reports</div>
+            ${yn("tpc-compact", "Compact rows (more lines on the screen)", cfg.reportCompact)}
+            ${yn("tpc-hidenil", "Hide lines with nil amounts", cfg.reportHideNil)}`;
+        const where = screen === "report" ? "this report" : screen === "voucher" ? "voucher entry" : "the Gateway of Tally";
+        m.innerHTML = `<div class="modal-dialog tp-dialog" style="width:560px; max-height:92vh; display:flex; flex-direction:column;">
+            <div class="tp-dialog-h">Configuration: ${esc(where)} <span style="cursor:pointer;" onclick="closeConfig()">&#10005;</span></div>
+            <div style="padding:12px 16px; display:flex; flex-direction:column; gap:8px; overflow:auto;">
+                ${screen === "report" ? reports + general : screen === "voucher" ? vouchers + general : general + vouchers + reports}
                 <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:6px;">
                     <button class="btn-tally-primary" onclick="saveConfig()">Accept (Ctrl+A)</button>
                     <button class="btn-tally-primary" style="background:var(--surface-hover); color:var(--text-primary);" onclick="closeConfig()">Quit (Esc)</button></div>
-                <div style="font-size:0.72rem; color:var(--text-muted);">Saved in this browser. The open voucher or report is not changed.</div>
+                <div style="font-size:0.72rem; color:var(--text-muted);">Saved in this browser. Options for other screens are in F12 on those screens.</div>
             </div></div>`;
         m.style.display = "flex";
     }
     function closeConfig() { const m = $("tp-config-modal"); if (m) m.style.display = "none"; }
     function saveConfig() {
-        cfg.style = $("tpc-style").value;
-        cfg.homePanels = $("tpc-panels").value === "1";
-        cfg.buttonBar = $("tpc-buttons").value === "1";
-        cfg.invoiceMode = $("tpc-invoice").value === "1";
-        cfg.acceptPrompt = $("tpc-accept").value === "1";
+        const yes = id => { const el = $(id); return el ? el.value === "1" : undefined; };
+        if ($("tpc-style")) cfg.style = $("tpc-style").value;
+        const set = (key, id) => { const v = yes(id); if (v !== undefined) cfg[key] = v; };
+        set("homePanels", "tpc-panels"); set("buttonBar", "tpc-buttons"); set("invoiceMode", "tpc-invoice"); set("acceptPrompt", "tpc-accept");
+        set("showNarration", "tpc-narration"); set("reportCompact", "tpc-compact"); set("reportHideNil", "tpc-hidenil");
         try { localStorage.setItem(KEY, JSON.stringify(cfg)); } catch (e) { /* not stored */ }
         closeConfig();
         applyStyle();
@@ -396,7 +407,81 @@
             document.documentElement.setAttribute("data-theme", saved === "classic" ? "dark" : saved);
         }
         if (!classic) { document.body.classList.remove("tp-show-dashboard"); const d = $("dashboard-screen"); if (d && !screenOpen()) d.style.display = "flex"; }
+        document.body.classList.toggle("tp-compact-rows", !!cfg.reportCompact);
+        ["inv-narration", "vch-narration", "vch-ml-narration"].forEach(id => {
+            const el = $(id); if (!el) return;
+            const holder = el.closest("label") || el.parentElement;
+            if (holder) holder.style.display = cfg.showNarration ? "" : "none";
+        });
+        applyReportOptions();
         refreshInfo(); syncHome();
+    }
+
+    // ------------------------------------------------------------------------------------------------ reports: row cursor, find, nil lines
+    let cursor = -1;
+    let finding = "";
+    const reportRows = () => [...document.querySelectorAll("#report-table-body tr")].filter(r => !r.classList.contains("total-row") && r.querySelector("td") && r.style.display !== "none");
+    const isNil = row => {
+        const cells = [...row.querySelectorAll("td")].slice(1);
+        const nums = cells.map(c => c.textContent.trim()).filter(t => /^[-+₹\s\d.,()DrCr]*$/.test(t) && t !== "" || t === "-");
+        return nums.length > 0 && nums.every(t => t === "-" || !/[1-9]/.test(t));
+    };
+    function applyReportOptions() {
+        const rows = document.querySelectorAll("#report-table-body tr");
+        const needle = finding.toLowerCase();
+        rows.forEach(r => {
+            if (r.classList.contains("total-row") || !r.querySelector("td")) { r.style.display = ""; return; }
+            const hide = (cfg.reportHideNil && isNil(r)) || (needle && !r.textContent.toLowerCase().includes(needle));
+            r.style.display = hide ? "none" : "";
+        });
+        cursor = -1;
+        document.querySelectorAll("#report-table-body tr.tp-cursor").forEach(r => r.classList.remove("tp-cursor"));
+    }
+    function moveCursor(delta, absolute) {
+        const rows = reportRows();
+        if (!rows.length) return;
+        cursor = absolute !== undefined ? (absolute < 0 ? rows.length - 1 : absolute) : Math.max(0, Math.min(rows.length - 1, cursor + delta));
+        document.querySelectorAll("#report-table-body tr.tp-cursor").forEach(r => r.classList.remove("tp-cursor"));
+        rows[cursor].classList.add("tp-cursor");
+        rows[cursor].scrollIntoView({block: "nearest"});
+    }
+    function openFindBar() {
+        let bar = $("tp-find");
+        if (!bar) {
+            const host = $("report-table-head") ? $("report-table-head").closest("table") : null;
+            if (!host) return;
+            bar = document.createElement("div");
+            bar.id = "tp-find"; bar.className = "tp-find";
+            bar.innerHTML = '<span>Find</span><input id="tp-find-input" class="tally-input" placeholder="type to narrow the lines (Esc clears)">';
+            host.parentNode.insertBefore(bar, host);
+            $("tp-find-input").addEventListener("input", e => { finding = e.target.value; applyReportOptions(); });
+            $("tp-find-input").addEventListener("keydown", e => { if (e.key === "Escape") { e.stopPropagation(); closeFindBar(); } });
+        }
+        bar.style.display = "flex"; $("tp-find-input").focus(); $("tp-find-input").select();
+    }
+    function closeFindBar() { const bar = $("tp-find"); if (bar) bar.style.display = "none"; finding = ""; if ($("tp-find-input")) $("tp-find-input").value = ""; applyReportOptions(); }
+
+    // + and - move the report to the next or previous period: a whole number of months when the period is made of whole months,
+    // otherwise the same number of days
+    function shiftPeriod(direction) {
+        const c = (typeof state !== "undefined" && state.company) || {};
+        const from = ($("report-from-date") && $("report-from-date").value) || period.from || c.financial_year_from;
+        const to = ($("report-to-date") && $("report-to-date").value) || period.to || c.financial_year_to;
+        if (!from || !to) return;
+        const a = new Date(from + "T00:00:00"), b = new Date(to + "T00:00:00");
+        const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        const wholeMonths = a.getDate() === 1 && new Date(b.getFullYear(), b.getMonth() + 1, 0).getDate() === b.getDate();
+        let nf, nt;
+        if (wholeMonths) {
+            const months = (b.getFullYear() - a.getFullYear()) * 12 + b.getMonth() - a.getMonth() + 1;
+            nf = new Date(a.getFullYear(), a.getMonth() + direction * months, 1);
+            nt = new Date(b.getFullYear(), b.getMonth() + 1 + direction * months, 0);
+        } else {
+            const days = Math.round((b - a) / 86400000) + 1;
+            nf = new Date(a.getTime() + direction * days * 86400000); nt = new Date(b.getTime() + direction * days * 86400000);
+        }
+        period = Object.assign({}, period, {from: iso(nf), to: iso(nt)});
+        savePeriod(); applyPeriod();
     }
 
     // ------------------------------------------------------------------------------------------------ keyboard
@@ -481,6 +566,21 @@
             if (combo === "Alt+D") return take(deleteOpenVoucher);
             if (combo === "Ctrl+H") return take(() => { if ($("vch-mode-toggle-btn") && $("vch-mode-toggle-btn").style.display !== "none") toggleVoucherMode(); });
             if (combo === "Ctrl+D") return take(() => { removeFocusedLine(); });
+        }
+
+        if (screen === "report" && !anyModal()) {
+            if (combo === "Alt+F" || combo === "Ctrl+F") return take(openFindBar);
+            if (!typing) {
+                if (k === "ArrowDown") return take(() => moveCursor(1));
+                if (k === "ArrowUp") return take(() => moveCursor(-1));
+                if (k === "PageDown") return take(() => moveCursor(10));
+                if (k === "PageUp") return take(() => moveCursor(-10));
+                if (k === "Home") return take(() => moveCursor(0, 0));
+                if (k === "End") return take(() => moveCursor(0, -1));
+                if (k === "Enter") { const row = reportRows()[cursor]; if (row && row.onclick) return take(() => row.click()); }
+                if ((k === "+" || k === "=") && !e.ctrlKey && !e.altKey) return take(() => shiftPeriod(1));
+                if ((k === "-" || k === "_") && !e.ctrlKey && !e.altKey) return take(() => shiftPeriod(-1));
+            }
         }
 
         // the Gateway of Tally menu
@@ -571,6 +671,8 @@
         new MutationObserver(syncHome).observe(center, {attributes: true, attributeFilter: ["style"], subtree: true});
         const crumb = $("breadcrumb");
         if (crumb) new MutationObserver(() => { if (!writing) updatePath(); }).observe(crumb, {childList: true, characterData: true, subtree: true});
+        const reportBody = $("report-table-body");
+        if (reportBody) new MutationObserver(() => { if (!applying) { applying = true; applyReportOptions(); applying = false; } }).observe(reportBody, {childList: true});
         const name = $("side-company-name");
         if (name) new MutationObserver(refreshInfo).observe(name, {childList: true, characterData: true, subtree: true});
     }

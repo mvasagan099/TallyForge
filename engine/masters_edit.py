@@ -82,13 +82,19 @@ def _update(db, table, name, values, company_scoped=True):
 # the simple masters: (table, key column, editable fields, where the name is used)
 SIMPLE = {"units": ("uom", "symbol", {"formal_name": str, "decimal_places": int}, [("stock_item", "uom_symbol"), ("compound_uom", "major_uom"), ("compound_uom", "minor_uom")]),
           "godowns": ("godown", "name", {"location": str, "parent": str}, [("stock_item", "godown_name"), ("voucher_inventory", "godown_name")]),
-          "cost_centres": ("cost_centre", "name", {"category_name": str, "parent": str}, [("voucher_entry", "cost_centre_name")])}
+          "cost_centres": ("cost_centre", "name", {"category_name": str, "parent": str}, [("voucher_entry", "cost_centre_name")]),
+          "employees": ("employee", "emp_code", {"name": str, "department": str, "designation": str, "basic_salary": float, "pan": str, "pf_uan": str,
+                                                 "esi_number": str, "bank_name": str, "account_no": str, "employee_group": str, "date_of_joining": str},
+                        [("payroll_month_input", "emp_code"), ("salary_structure", "emp_code"), ("attendance", "emp_code")])}
 PROTECTED = {"godowns": {"Main Location"}}
 KINDS = ("ledgers", "stock_items", "groups") + tuple(SIMPLE)
 
 
 def _simple_used(db, kind, name):
     table, key, _fields, refs = SIMPLE[kind]
+    if kind == "employees":                                   # payroll inputs or attendance exist for this person (the salary structure goes with them)
+        return any(_has(db, t, c) and db.conn.execute(f"SELECT 1 FROM {t} WHERE {c} = ? LIMIT 1", (name,)).fetchone()
+                   for t, c in refs if t != "salary_structure")
     for t, c in refs:
         if t in ("stock_item", "compound_uom"):
             if _has(db, t, c) and db.conn.execute(f"SELECT 1 FROM {t} WHERE {c} = ? LIMIT 1", (name,)).fetchone():
@@ -105,6 +111,17 @@ def _simple_alter(db, kind, name, changes, new_name):
     if name in PROTECTED.get(kind, ()) and new_name != name:
         raise ValueError(f"'{name}' is the default location and keeps its name")
     values = _clean(fields, changes)
+    if kind == "employees":
+        if "name" in values and not values["name"]:
+            raise ValueError("An employee needs a name")
+        if values.get("basic_salary", 0) < 0:
+            raise ValueError("A basic salary cannot be negative")
+        if values.get("pan") and not re.match(r"^[A-Z]{5}\d{4}[A-Z]$", values["pan"].upper()):
+            raise ValueError("A PAN is five letters, four digits and a letter")
+        if values.get("pan"):
+            values["pan"] = values["pan"].upper()
+        if values.get("date_of_joining") and not db._valid_iso_date(values["date_of_joining"]):
+            raise ValueError("Date of joining: use YYYY-MM-DD")
     if kind == "units" and values.get("decimal_places", 0) not in range(0, 6):
         raise ValueError("Decimal places must be between 0 and 5")
     if new_name != name:
@@ -126,6 +143,8 @@ def _simple_alter(db, kind, name, changes, new_name):
                 db.conn.execute(f"UPDATE {t} SET {c} = ? WHERE {c} = ?", (new_name, name))
         if kind in ("godowns", "cost_centres"):
             db.conn.execute(f"UPDATE {table} SET parent = ? WHERE parent = ?", (new_name, name))
+        if kind == "employees" and _has(db, "payroll_month_input", "emp_code"):
+            pass                                              # covered by the references above
 
 
 def detail(db, kind, name):
@@ -135,13 +154,14 @@ def detail(db, kind, name):
         if row is None:
             raise ValueError(f"{name!r} does not exist")
         out = dict(row)
+        out["full_name"] = out.get("name")                    # an employee's name (the key is the employee code)
         out["name"] = out.get(key)
         out["used_in_vouchers"] = _simple_used(db, kind, name)
         out["protected"] = name in PROTECTED.get(kind, ())
         return out
     table = {"ledgers": "ledger", "stock_items": "stock_item", "groups": "account_group"}.get(kind)
     if not table:
-        raise ValueError("Masters that can be altered here: ledgers, stock items, groups, units, godowns and cost centres")
+        raise ValueError("Masters that can be altered here: ledgers, stock items, groups, units, godowns, cost centres and employees")
     row = db.conn.execute(f"SELECT * FROM {table} WHERE name = ?", (name,)).fetchone()
     if row is None:
         raise ValueError(f"{name!r} does not exist")
@@ -243,8 +263,8 @@ def alter(db, kind, name, changes):
         elif kind in SIMPLE:
             _simple_alter(db, kind, name, changes, new_name)
         else:
-            raise ValueError("Masters that can be altered here: ledgers, stock items, groups, units, godowns and cost centres")
-        db._log_edit({"ledgers": "Ledger", "stock_items": "StockItem", "groups": "Group", "units": "Unit", "godowns": "Godown", "cost_centres": "CostCentre"}[kind], new_name, "ALTER",
+            raise ValueError("Masters that can be altered here: ledgers, stock items, groups, units, godowns, cost centres and employees")
+        db._log_edit({"ledgers": "Ledger", "stock_items": "StockItem", "groups": "Group", "units": "Unit", "godowns": "Godown", "cost_centres": "CostCentre", "employees": "Employee"}[kind], new_name, "ALTER",
                      f"Altered {name}" + (f" (renamed to {new_name})" if new_name != name else ""))
         db.conn.commit()
     except Exception:
@@ -286,10 +306,12 @@ def delete(db, kind, name):
                 raise ValueError(f"'{name}' is in use and cannot be deleted")
             if kind in ("godowns", "cost_centres") and db.conn.execute(f"SELECT 1 FROM {table} WHERE parent = ?", (name,)).fetchone():
                 raise ValueError(f"'{name}' still has others under it")
+            if kind == "employees" and _has(db, "salary_structure", "emp_code"):
+                db.conn.execute("DELETE FROM salary_structure WHERE emp_code = ?", (name,))
             db.conn.execute(f"DELETE FROM {table} WHERE {key} = ?", (name,))
         else:
-            raise ValueError("Masters that can be deleted here: ledgers, stock items, groups, units, godowns and cost centres")
-        db._log_edit({"ledgers": "Ledger", "stock_items": "StockItem", "groups": "Group", "units": "Unit", "godowns": "Godown", "cost_centres": "CostCentre"}[kind], name, "DELETE", f"Deleted {name}")
+            raise ValueError("Masters that can be deleted here: ledgers, stock items, groups, units, godowns, cost centres and employees")
+        db._log_edit({"ledgers": "Ledger", "stock_items": "StockItem", "groups": "Group", "units": "Unit", "godowns": "Godown", "cost_centres": "CostCentre", "employees": "Employee"}[kind], name, "DELETE", f"Deleted {name}")
         db.conn.commit()
     except Exception:
         db.conn.rollback()

@@ -149,6 +149,22 @@ class MasterEditTests(unittest.TestCase):
         masters_edit.delete(self.db, 'cost_centres', 'North-1')
         masters_edit.delete(self.db, 'cost_centres', 'North Zone')
 
+    def test_employees_can_be_altered_with_checks_and_payroll_rows_follow_a_new_code(self):
+        self.db.add_employee('E1', 'Ravi', basic_salary=30000)
+        self.db.conn.execute("INSERT INTO attendance(emp_code, month, present_days, absent_days, overtime_hours) VALUES ('E1', '2026-05', 26, 0, 0)")
+        self.assertTrue(masters_edit.detail(self.db, 'employees', 'E1')['used_in_vouchers'])
+        masters_edit.alter(self.db, 'employees', 'E1', {'new_name': 'E100', 'name': 'Ravi Kumar', 'basic_salary': 32000, 'pan': 'abcde1234f'})
+        d = masters_edit.detail(self.db, 'employees', 'E100')
+        self.assertEqual((d['full_name'], d['basic_salary'], d['pan']), ('Ravi Kumar', 32000.0, 'ABCDE1234F'))
+        self.assertEqual(self.db.conn.execute("SELECT COUNT(*) FROM attendance WHERE emp_code = 'E100'").fetchone()[0], 1)
+        for bad, message in (({'pan': 'XYZ'}, 'PAN'), ({'basic_salary': -1}, 'negative'), ({'name': ' '}, 'needs a name'), ({'date_of_joining': '1/1/26'}, 'YYYY-MM-DD')):
+            with self.assertRaisesRegex(ValueError, message):
+                masters_edit.alter(self.db, 'employees', 'E100', bad)
+        with self.assertRaisesRegex(ValueError, 'in use'):
+            masters_edit.delete(self.db, 'employees', 'E100')
+        self.db.add_employee('E2', 'Meena')
+        masters_edit.delete(self.db, 'employees', 'E2')
+
 
 if __name__ == '__main__':
     unittest.main()

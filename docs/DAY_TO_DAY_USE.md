@@ -67,6 +67,7 @@ an open voucher, Ctrl+H switch between invoice and voucher mode, Ctrl+E export, 
 | Price lists | Gateway menu: Price Lists (or Ctrl+K) |
 | GST summary | Gateway menu: GST Summary (by rate): outward and inward tax by rate for the financial year, with a check that it closes against the tax ledgers. A summary of your books, not a filed return |
 | Reports | Gateway menu: Balance Sheet, Profit & Loss, Trial Balance, Group Summary, Stock Summary, the registers, Day Book |
+| Move around a report | Up / Down / PgUp / PgDn move a line cursor, Enter opens it, + and - go to the next or previous period, Alt+F finds text in the lines, F2 changes the period, F12 sets compact rows or hides nil lines |
 | Drill down | Click a row (a month in a register, a group in Trial Balance or Group Summary, an item in Stock Summary) |
 | Search anything | Ctrl+K or Alt+G |
 | Backup and restore | Alt+Y |
