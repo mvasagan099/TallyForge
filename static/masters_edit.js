@@ -3,7 +3,7 @@
     "use strict";
     const $ = id => document.getElementById(id);
     const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
-    const KINDS = {ledgers: "Ledger", stock_items: "Stock Item", groups: "Group"};
+    const KINDS = {ledgers: "Ledger", stock_items: "Stock Item", groups: "Group", units: "Unit", godowns: "Godown", cost_centres: "Cost Centre"};
     let editing = null;
 
     const names = list => (list || []).map(x => typeof x === "string" ? x : (x.name || x.symbol || "")).filter(Boolean);
@@ -27,6 +27,18 @@
                 + field("opening_qty", "Opening quantity", d.opening_qty, "number") + field("opening_rate", "Opening rate", d.opening_rate, "number")
                 + field("reorder_level", "Reorder level", d.reorder_level, "number") + field("part_number", "Part number", d.part_number);
         }
+        if (kind === "units") {
+            return field("new_name", "Symbol", d.name) + field("formal_name", "Formal name", d.formal_name) + field("decimal_places", "Number of decimal places", d.decimal_places, "number");
+        }
+        if (kind === "godowns") {
+            const others = [["Primary", "Primary"]].concat(names(state.godowns).filter(n => n !== d.name).map(n => [n, n]));
+            return (d.protected ? `<div style="font-size:0.75rem; color:var(--text-muted);">The default location keeps its name.</div>` : "")
+                + field("new_name", "Name", d.name).replace("<input ", d.protected ? "<input disabled " : "<input ") + field("location", "Location", d.location) + choice("parent", "Under", d.parent || "Primary", others);
+        }
+        if (kind === "cost_centres") {
+            const others = [["Primary", "Primary"]].concat(names(state.costCentres).filter(n => n !== d.name).map(n => [n, n]));
+            return field("new_name", "Name", d.name) + field("category_name", "Category", d.category_name) + choice("parent", "Under", d.parent || "Primary", others);
+        }
         const locked = d.reserved ? " disabled" : "";
         return `<div style="font-size:0.75rem; color:var(--text-muted);">${d.reserved ? "A TallyPrime reserved group: its name and place cannot change." : ""}</div>`
             + field("new_name", "Name", d.name).replace("<input ", `<input${locked} `)
@@ -47,8 +59,8 @@
             m.onclick = e => { if (e.target === m) closeMasterEditor(); };
             document.body.appendChild(m);
         }
-        const locked = kind === "groups" && d.reserved;
-        const warning = kind === "groups" ? "" : `<div style="font-size:0.72rem; color:var(--text-muted);">${d.used_in_vouchers
+        const locked = (kind === "groups" && d.reserved) || (kind === "godowns" && d.protected);
+        const warning = (kind === "groups" || kind === "godowns" || kind === "cost_centres" || kind === "units") ? "" : `<div style="font-size:0.72rem; color:var(--text-muted);">${d.used_in_vouchers
             ? "Used in vouchers: a new name is applied to all of them. " : ""}Changes stay in TallyForge: they do not reach TallyPrime, and importing from TallyPrime again would bring an old name back as a new master.</div>`;
         m.innerHTML = `<div class="modal-dialog tp-dialog" style="width:560px; max-height:92vh; display:flex; flex-direction:column;">
             <div class="tp-dialog-h">${esc(KINDS[kind])} Alteration <span style="cursor:pointer;" onclick="closeMasterEditor()">&#10005;</span></div>

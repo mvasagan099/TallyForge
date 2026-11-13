@@ -46,6 +46,12 @@ class ClassicShellTests(unittest.TestCase):
             self.assertIn(route, editor)
         self.assertIn('"tp-master-modal"', self.js)        # Esc closes the editor instead of leaving the screen
 
+    def test_f2_and_alt_f2_open_the_period_dialog(self):
+        for needle in ('"Alt+F2"', 'openPeriodDialog', 'tp-period-modal', 'window.openDatePrompt = openPeriodDialog', 'tf_period'):
+            self.assertIn(needle, self.js)
+        for kind in ('units', 'godowns', 'cost_centres'):
+            self.assertIn(kind, (STATIC / 'masters_edit.js').read_text(encoding='utf-8'))
+
 
 if __name__ == '__main__':
     unittest.main()
