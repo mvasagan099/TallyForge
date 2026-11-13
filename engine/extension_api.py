@@ -30,6 +30,9 @@ def get_route(path, query, db, store):
     if path == '/api/invoices/readiness':
         from engine.einvoice_check import readiness
         return 200, readiness(db, int(query['voucher_id'][0]))
+    if path == '/api/masters/detail':
+        from engine import masters_edit
+        return 200, masters_edit.detail(db, query.get('type', [''])[0], query.get('name', [''])[0])
     if path == '/api/banking/statement':
         from engine import bank_recon
         ledger = query.get('ledger', [''])[0] or (bank_recon.bank_ledgers(db) or [''])[0]
@@ -114,6 +117,13 @@ def post_route(path, data, db, store, user, contexts=None):
             return 403, {'error': 'A viewer cannot enter vouchers'}
         from engine.invoice_entry import save_invoice
         return 201, save_invoice(db, data)
+    if path in ('/api/masters/alter', '/api/masters/delete'):
+        if user.get('role') == 'Viewer':
+            return 403, {'error': 'A viewer cannot change masters'}
+        from engine import masters_edit
+        if path.endswith('alter'):
+            return 200, masters_edit.alter(db, data.get('type', ''), data.get('name', ''), data.get('changes') or {})
+        return 200, masters_edit.delete(db, data.get('type', ''), data.get('name', ''))
     if path == '/api/banking/mark':
         if user.get('role') == 'Viewer':
             return 403, {'error': 'A viewer cannot reconcile'}

@@ -70,8 +70,8 @@ body.tp-no-buttonbar .tally-fkey-sidebar { display: none !important; }
 .tp-item.tp-sel { background: #ffd75e; color: #0d2433; font-weight: 600; }
 
 /* dialogs of the classic shell */
-.tp-dialog { background: #fff; border: 1px solid #5d8fb0; }
-.tp-dialog-h { background: #0b6a9d; color: #fff; padding: 7px 14px; font-weight: 600; display: flex; justify-content: space-between; }
+.tp-dialog { background: var(--surface); border: 1px solid var(--border-color); color: var(--text-primary); }
+.tp-dialog-h { background: var(--accent-primary); color: #fff; padding: 7px 14px; font-weight: 600; display: flex; justify-content: space-between; }
 .tp-opt { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 0.82rem; color: var(--text-primary); }
 .tp-opt select { width: 190px; }
 #tp-vouchers-modal .tp-menu { max-height: 70vh; }
