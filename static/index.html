@@ -1149,12 +1149,12 @@
 
     <!-- 10. PRINT PREVIEW MODAL (P: Print) -->
     <div class="modal-overlay" id="pricelist-modal" onclick="if(event.target===this) closePriceLists()">
-        <div class="modal-dialog" style="width: 820px; max-height:90vh; display:flex; flex-direction:column;">
+        <div class="modal-dialog" style="width: 960px; max-width:96vw; max-height:90vh; display:flex; flex-direction:column;">
             <div style="background:var(--surface-subtle); color:var(--text-primary); border-bottom:1px solid var(--border-color); padding:10px 16px; font-weight:700; display:flex; justify-content:space-between;">
                 <span>Price Lists</span>
                 <span style="cursor:pointer;" onclick="closePriceLists()">&#10005;</span>
             </div>
-            <div style="padding:12px 16px; overflow:auto; display:flex; flex-direction:column; gap:10px; font-size:0.8rem;">
+            <div style="padding:12px 16px; overflow-y:auto; overflow-x:hidden; display:flex; flex-direction:column; gap:10px; font-size:0.8rem;">
                 <div style="display:flex; gap:8px; align-items:center;">
                     <label>List <select id="pl-list" class="tally-input" onchange="priceListShow()"></select></label>
                     <input id="pl-new-name" class="tally-input" placeholder="new list name">
@@ -1164,13 +1164,13 @@
                     <thead><tr><th>Item</th><th>Effective from</th><th>Qty from</th><th>Qty up to (excl.)</th><th>Rate</th><th>Disc %</th></tr></thead>
                     <tbody id="pl-rates-body"></tbody>
                 </table>
-                <div style="display:grid; grid-template-columns: 2fr 1.2fr 0.8fr 0.9fr 0.8fr 0.6fr auto; gap:6px; align-items:end;">
-                    <select id="pl-item" class="tally-input"></select>
-                    <input id="pl-from" type="date" class="tally-input">
-                    <input id="pl-qty-from" class="tally-input" placeholder="0">
-                    <input id="pl-qty-to" class="tally-input" placeholder="no limit">
-                    <input id="pl-rate" class="tally-input" placeholder="rate">
-                    <input id="pl-disc" class="tally-input" placeholder="0">
+                <div style="display:grid; grid-template-columns: minmax(0,2fr) minmax(0,1.3fr) minmax(0,0.8fr) minmax(0,0.9fr) minmax(0,0.8fr) minmax(0,0.6fr) auto; gap:6px; align-items:end;">
+                    <select id="pl-item" style="width:100%; min-width:0;" class="tally-input"></select>
+                    <input id="pl-from" style="width:100%; min-width:0;" type="date" class="tally-input">
+                    <input id="pl-qty-from" style="width:100%; min-width:0;" class="tally-input" placeholder="0">
+                    <input id="pl-qty-to" style="width:100%; min-width:0;" class="tally-input" placeholder="no limit">
+                    <input id="pl-rate" style="width:100%; min-width:0;" class="tally-input" placeholder="rate">
+                    <input id="pl-disc" style="width:100%; min-width:0;" class="tally-input" placeholder="0">
                     <button class="btn-tally-primary" onclick="priceListAddRate()" style="font-size:0.75rem; padding:3px 10px;">Set rate</button>
                 </div>
                 <div style="display:flex; gap:8px; align-items:center;">
