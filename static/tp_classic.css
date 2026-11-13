@@ -87,3 +87,9 @@ body.tp-classic .tf-top-actions { flex: 0 0 auto; }
     body.tp-classic .tf-top-pills { display: none; }
     body.tp-classic .tf-top-actions button[title^="Calculator"] { display: none; }
 }
+
+/* report cursor, find bar and compact rows */
+#report-table-body tr.tp-cursor { outline: 2px solid var(--accent-primary); background: var(--surface-active); }
+.tp-find { display: none; align-items: center; gap: 8px; padding: 4px 8px; font-size: 0.8rem; color: var(--text-primary); }
+.tp-find input { width: 320px; }
+body.tp-compact-rows #report-table-body td, body.tp-compact-rows #report-table-body th { padding-top: 2px !important; padding-bottom: 2px !important; font-size: 0.8rem; }

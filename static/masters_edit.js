@@ -3,7 +3,7 @@
     "use strict";
     const $ = id => document.getElementById(id);
     const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
-    const KINDS = {ledgers: "Ledger", stock_items: "Stock Item", groups: "Group", units: "Unit", godowns: "Godown", cost_centres: "Cost Centre"};
+    const KINDS = {ledgers: "Ledger", stock_items: "Stock Item", groups: "Group", units: "Unit", godowns: "Godown", cost_centres: "Cost Centre", employees: "Employee"};
     let editing = null;
 
     const names = list => (list || []).map(x => typeof x === "string" ? x : (x.name || x.symbol || "")).filter(Boolean);
@@ -26,6 +26,13 @@
                 + field("hsn_code", "HSN / SAC code", d.hsn_code) + field("gst_rate", "GST rate %", d.gst_rate, "number")
                 + field("opening_qty", "Opening quantity", d.opening_qty, "number") + field("opening_rate", "Opening rate", d.opening_rate, "number")
                 + field("reorder_level", "Reorder level", d.reorder_level, "number") + field("part_number", "Part number", d.part_number);
+        }
+        if (kind === "employees") {
+            return field("new_name", "Employee code", d.name) + field("name", "Name", d.full_name) + field("department", "Department", d.department)
+                + field("designation", "Designation", d.designation) + field("basic_salary", "Basic salary", d.basic_salary, "number")
+                + field("pan", "PAN", d.pan) + field("pf_uan", "PF UAN", d.pf_uan) + field("esi_number", "ESI number", d.esi_number)
+                + field("bank_name", "Bank", d.bank_name) + field("account_no", "Account number", d.account_no)
+                + field("employee_group", "Employee group", d.employee_group) + field("date_of_joining", "Date of joining", d.date_of_joining, "date");
         }
         if (kind === "units") {
             return field("new_name", "Symbol", d.name) + field("formal_name", "Formal name", d.formal_name) + field("decimal_places", "Number of decimal places", d.decimal_places, "number");
@@ -60,7 +67,7 @@
             document.body.appendChild(m);
         }
         const locked = (kind === "groups" && d.reserved) || (kind === "godowns" && d.protected);
-        const warning = (kind === "groups" || kind === "godowns" || kind === "cost_centres" || kind === "units") ? "" : `<div style="font-size:0.72rem; color:var(--text-muted);">${d.used_in_vouchers
+        const warning = (kind === "groups" || kind === "godowns" || kind === "cost_centres" || kind === "units" || kind === "employees") ? "" : `<div style="font-size:0.72rem; color:var(--text-muted);">${d.used_in_vouchers
             ? "Used in vouchers: a new name is applied to all of them. " : ""}Changes stay in TallyForge: they do not reach TallyPrime, and importing from TallyPrime again would bring an old name back as a new master.</div>`;
         m.innerHTML = `<div class="modal-dialog tp-dialog" style="width:560px; max-height:92vh; display:flex; flex-direction:column;">
             <div class="tp-dialog-h">${esc(KINDS[kind])} Alteration <span style="cursor:pointer;" onclick="closeMasterEditor()">&#10005;</span></div>
@@ -94,7 +101,7 @@
             let value = el.value;
             if (el.type === "number") value = value === "" ? 0 : parseFloat(value);
             else if (key === "maintain_bill_by_bill" || key === "is_revenue" || key === "affects_gross") value = parseInt(value);
-            const before = key === "new_name" ? detail.name : detail[key];
+            const before = key === "new_name" ? detail.name : (kind === "employees" && key === "name" ? detail.full_name : detail[key]);
             if (String(value) !== String(before ?? "")) changes[key] = value;
         });
         if (!Object.keys(changes).length) { closeMasterEditor(); return; }

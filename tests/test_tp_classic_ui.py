@@ -52,6 +52,12 @@ class ClassicShellTests(unittest.TestCase):
         for kind in ('units', 'godowns', 'cost_centres'):
             self.assertIn(kind, (STATIC / 'masters_edit.js').read_text(encoding='utf-8'))
 
+    def test_report_keys_and_screen_specific_configuration_are_present(self):
+        for needle in ('moveCursor', 'openFindBar', 'shiftPeriod', 'applyReportOptions', 'reportHideNil', 'reportCompact', 'showNarration',
+                       'Configuration: ${esc(where)}', '"Alt+F"', '"Ctrl+F"'):
+            self.assertIn(needle, self.js)
+        self.assertIn('employees', (STATIC / 'masters_edit.js').read_text(encoding='utf-8'))
+
 
 if __name__ == '__main__':
     unittest.main()
