@@ -2704,6 +2704,9 @@ class EnterpriseAccountingDB(ReliabilityMixin):
     # Banking Management & Automated Statement Reconciliation (BRS)
     # -------------------------------------------------------------------------
     def get_bank_reconciliation(self, bank_ledger: str = "HDFC Bank") -> Dict[str, Any]:
+        from engine import bank_recon
+        if bank_ledger in bank_recon.bank_ledgers(self):
+            bank_recon.sync(self, bank_ledger)          # entries that came in by import have no reconciliation row yet
         cursor = self.conn.cursor()
         cursor.execute("""
             SELECT br.id, br.instrument_no, br.instrument_date, br.bank_date, br.status,
@@ -2767,14 +2770,21 @@ class EnterpriseAccountingDB(ReliabilityMixin):
                 # A statement line has an amount, or a debit or a credit column: take the first that is really non-zero
                 # (a credit line carries "0.0" in its debit column, which used to hide the credit).
                 amt_str = str(_number(row_norm.get("amount")) or _number(row_norm.get("debit")) or _number(row_norm.get("credit")) or 0)
+                # a bank debit (withdrawal) is a credit in our bank ledger and a bank credit (deposit) a debit
+                side = "Cr" if _number(row_norm.get("debit")) else ("Dr" if _number(row_norm.get("credit")) else None)
                 csv_rows.append({
                     "date": row_norm.get("date", datetime.date.today().isoformat()),
-                    "amount": amt_str,
+                    "amount": amt_str, "side": side,
                     "ref": row_norm.get("instrumentno") or row_norm.get("chequeno") or row_norm.get("ref") or ""
                 })
         elif isinstance(csv_data, list):
             csv_rows = csv_data
 
+        from engine import bank_recon
+        if bank_ledger in bank_recon.bank_ledgers(self):
+            result = bank_recon.match_statement(self, bank_ledger, csv_rows)
+            return {"status": "success", "matched": result["matched"], "reconciled_count": result["matched"], "total_lines": result["total_lines"],
+                    "unmatched_lines": result["unmatched_lines"]}
         reconciled_count = 0
         with self.conn:
             for row in csv_rows:

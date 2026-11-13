@@ -22,11 +22,18 @@ def get_route(path, query, db, store):
         return 200, {'strict': strict, 'cash_bank': sorted(db._cash_bank_ledgers()) if strict else []}
     if path == '/api/search/companies':
         return 200, store.search(query.get('q', [''])[0], db)
-    if path == '/api/gst/summary':
+    if path == '/api/gst/rate-summary':
         from engine.gst_summary import gst_summary
         books = db.get_company()                                  # no dates given: the company's financial year
         return 200, gst_summary(db, query.get('from', [''])[0] or books.get('financial_year_from') or '2000-01-01',
                                 query.get('to', [''])[0] or books.get('financial_year_to') or '2100-01-01')
+    if path == '/api/invoices/readiness':
+        from engine.einvoice_check import readiness
+        return 200, readiness(db, int(query['voucher_id'][0]))
+    if path == '/api/banking/statement':
+        from engine import bank_recon
+        ledger = query.get('ledger', [''])[0] or (bank_recon.bank_ledgers(db) or [''])[0]
+        return 200, {'ledgers': bank_recon.bank_ledgers(db), **(bank_recon.statement(db, ledger, query.get('as_of', [''])[0] or None) if ledger else {})}
     if path == '/api/price-lists':
         from engine import price_lists
         return 200, price_lists.summary(db)
@@ -107,6 +114,11 @@ def post_route(path, data, db, store, user, contexts=None):
             return 403, {'error': 'A viewer cannot enter vouchers'}
         from engine.invoice_entry import save_invoice
         return 201, save_invoice(db, data)
+    if path == '/api/banking/mark':
+        if user.get('role') == 'Viewer':
+            return 403, {'error': 'A viewer cannot reconcile'}
+        from engine import bank_recon
+        return 200, bank_recon.mark(db, int(data['voucher_id']), data['ledger'], data.get('bank_date') or '')
     if path == '/api/price-lists':
         if user.get('role') == 'Viewer':
             return 403, {'error': 'A viewer cannot change price lists'}

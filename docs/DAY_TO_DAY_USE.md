@@ -51,6 +51,8 @@ TallyPrime running; both are on the same screen.
 | Open or alter a voucher | Click it in the Day Book or in a register |
 | Print an invoice or voucher | Alt+P (from an open voucher it prints that voucher) |
 | Add GST to an invoice | the *Add GST* button on the multi-line voucher screen |
+| Reconcile a bank | Gateway menu: Banking & BRS. Click a pending line to record the date the bank cleared it; upload a statement CSV to match lines automatically. Imported companies start with everything unreconciled |
+| Price lists | Gateway menu: Price Lists (or Ctrl+K) |
 | GST summary | Gateway menu: GST Summary (by rate): outward and inward tax by rate for the financial year, with a check that it closes against the tax ledgers. A summary of your books, not a filed return |
 | Reports | Gateway menu: Balance Sheet, Profit & Loss, Trial Balance, Group Summary, Stock Summary, the registers, Day Book |
 | Drill down | Click a row (a month in a register, a group in Trial Balance or Group Summary, an item in Stock Summary) |
@@ -65,6 +67,8 @@ entry screen is your company's own. A sales invoice with items gets its bill ref
 buyer's GSTIN and state from that party's latest earlier invoice.
 
 ## Export
+To try the file in TallyPrime safely, follow `docs/TALLYPRIME_IMPORT_TEST.md` (a test company only).
+
 **Import / Export Tally data** also writes the company as Tally XML. This file has been checked by re-importing it
 into TallyForge only. Whether TallyPrime accepts it has not been tested, so try it on a copy company first.
 

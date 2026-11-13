@@ -162,6 +162,31 @@ class ExtrasTests(unittest.TestCase):
                                     'items': [{'stock_item_name': 'Rice', 'qty': 5, 'rate': 50, 'due_date': '2026-06-30'}]})['voucher_id']
         self.assertEqual(build_print(self.db, po)['items'][0]['due'], '2026-06-30')
 
+    def test_price_list_rates_must_be_positive(self):
+        price_lists.create(self.db, 'Zero')
+        with self.assertRaisesRegex(ValueError, 'above zero'):
+            price_lists.set_rates(self.db, 'Zero', [{'stock_item_name': 'Rice', 'effective_from': '2026-04-01', 'rate': 0}])
+
+    # e-way details and readiness -------------------------------------------------------------------------------
+    def test_dispatch_details_are_stored_and_readiness_lists_what_is_missing(self):
+        from engine.einvoice_check import readiness
+        self.db.conn.execute("UPDATE stock_item SET hsn_code = '' WHERE name = 'Rice'")        # new items start with a placeholder HSN
+        base = {'voucher_type': 'Sales', 'date': '2026-05-10', 'party_ledger': 'Buyer', 'sales_ledger': 'Sales', 'items': [{'stock_item_name': 'Rice', 'qty': 2, 'rate': 60}]}
+        with self.assertRaisesRegex(ValueError, 'vehicle number'):
+            build_invoice(self.db, {**base, 'vehicle_no': 'NOT A PLATE!'})
+        vid = save_invoice(self.db, {**base, 'vehicle_no': 'tn 01-ab 1234', 'transporter_id': ' 33AAAAA0000A1Z5 ', 'distance_km': 120})['voucher_id']
+        row = self.db.conn.execute('SELECT vehicle_no, transporter_id, distance_km FROM voucher WHERE id = ?', (vid,)).fetchone()
+        self.assertEqual(tuple(row), ('TN01AB1234', '33AAAAA0000A1Z5', 120.0))
+        r = readiness(self.db, vid)
+        self.assertTrue(r['applicable'])
+        self.assertIn('seller GSTIN (company)', r['einvoice']['missing'])
+        self.assertTrue(any(m.startswith('HSN / SAC code') for m in r['einvoice']['missing']))
+        self.assertNotIn('vehicle number', r['eway']['missing'])                   # entered, so no longer missing
+        bare = save_invoice(self.db, base)['voucher_id']
+        self.assertEqual(sorted({'vehicle number', 'transport distance (km)'} & set(readiness(self.db, bare)['eway']['missing'])), ['transport distance (km)', 'vehicle number'])
+        note = self.note('Delivery Note')
+        self.assertFalse(readiness(self.db, note)['applicable'])
+
 
 if __name__ == '__main__':
     unittest.main()

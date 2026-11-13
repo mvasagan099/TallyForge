@@ -533,6 +533,17 @@ function renderReportTable(reportData, reportName) {
                 tr.style.cursor = "pointer";
                 tr.title = line.drill ? "Click to drill down" : "Click to go back";
                 tr.onclick = () => openReportDrill(reportName, line.drill);
+            } else if (line.bank_mark && !isHeader && !isTotal) {
+                tr.style.cursor = "pointer";
+                tr.title = "Click to record the date the bank cleared this entry";
+                tr.onclick = async () => {
+                    const when = prompt("Date the bank cleared this entry (YYYY-MM-DD):", new Date().toISOString().slice(0, 10));
+                    if (!when) return;
+                    const res = await fetch("/api/banking/mark", {method: "POST", headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify({voucher_id: line.bank_mark.voucher_id, ledger: line.bank_mark.ledger, bank_date: when})});
+                    if (!res.ok) { alert((await res.json()).error || "Could not record the bank date"); return; }
+                    openReport("BankReconciliation", "Banking & BRS");
+                };
             } else if (line.voucher_id && !isHeader && !isTotal) {
                 tr.style.cursor = "pointer";
                 tr.title = `Click to view / alter Voucher #${line.voucher_id}`;
@@ -3200,6 +3211,79 @@ function openPrintModal() {
     }
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// Price lists: rates by effective date and quantity slab, and which party uses which list.
+// ---------------------------------------------------------------------------------------------------------------
+async function priceListLoad(keep) {
+    const msg = document.getElementById("pl-message");
+    try {
+        const res = await fetch("/api/price-lists");
+        state.priceLists = res.ok ? await res.json() : [];
+    } catch (err) { state.priceLists = []; msg.textContent = "Could not load price lists: " + err; }
+    const select = document.getElementById("pl-list");
+    select.innerHTML = state.priceLists.map(p => `<option value="${printEsc(p.name)}">${printEsc(p.name)}</option>`).join("");
+    if (keep && state.priceLists.some(p => p.name === keep)) select.value = keep;
+    priceListShow();
+}
+
+function priceListShow() {
+    const name = document.getElementById("pl-list").value;
+    const list = (state.priceLists || []).find(p => p.name === name);
+    document.getElementById("pl-rates-body").innerHTML = list ? list.rates.map(r => `<tr><td>${printEsc(r.stock_item_name)}</td><td>${printEsc(r.effective_from)}</td>
+        <td style="text-align:right;">${printEsc(r.qty_from)}</td><td style="text-align:right;">${r.qty_to === null ? "-" : printEsc(r.qty_to)}</td>
+        <td style="text-align:right;">${printMoney(r.rate)}</td><td style="text-align:right;">${printEsc(r.discount_percent)}</td></tr>`).join("") : "";
+    document.getElementById("pl-parties").textContent = list && list.parties.length ? "Used by: " + list.parties.join(", ") : "";
+}
+
+async function openPriceLists() {
+    const modal = document.getElementById("pricelist-modal");
+    if (!modal) return;
+    const fill = (id, names) => { document.getElementById(id).innerHTML = names.map(n => `<option value="${printEsc(n)}">${printEsc(n)}</option>`).join(""); };
+    fill("pl-item", state.stockItems.map(i => i.name));
+    fill("pl-party", state.ledgers.filter(l => /Sundry/.test(l.group_name || "")).map(l => l.name));
+    document.getElementById("pl-from").value = new Date().toISOString().slice(0, 10);
+    document.getElementById("pl-message").textContent = "";
+    modal.style.display = "flex";
+    await priceListLoad();
+}
+
+function closePriceLists() {
+    const modal = document.getElementById("pricelist-modal");
+    if (modal) modal.style.display = "none";
+}
+
+async function priceListPost(body, keep) {
+    const msg = document.getElementById("pl-message");
+    msg.textContent = "";
+    try {
+        const res = await fetch("/api/price-lists", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+        const out = await res.json();
+        if (!res.ok) { msg.textContent = out.error || "Could not save"; return; }
+        await priceListLoad(keep);
+    } catch (err) { msg.textContent = "Could not reach the server: " + err; }
+}
+
+function priceListCreate() {
+    const name = document.getElementById("pl-new-name").value.trim();
+    if (!name) { document.getElementById("pl-message").textContent = "Give the new list a name."; return; }
+    document.getElementById("pl-new-name").value = "";
+    priceListPost({name}, name);
+}
+
+function priceListAddRate() {
+    const name = document.getElementById("pl-list").value;
+    if (!name) { document.getElementById("pl-message").textContent = "Create a list first."; return; }
+    const num = id => { const v = document.getElementById(id).value.trim(); return v === "" ? undefined : parseFloat(v); };
+    priceListPost({name, rates: [{stock_item_name: document.getElementById("pl-item").value, effective_from: document.getElementById("pl-from").value,
+        qty_from: num("pl-qty-from"), qty_to: num("pl-qty-to"), rate: num("pl-rate"), discount_percent: num("pl-disc")}]}, name);
+}
+
+function priceListAssign() {
+    const name = document.getElementById("pl-list").value;
+    if (!name) { document.getElementById("pl-message").textContent = "Create a list first."; return; }
+    priceListPost({name, parties: [document.getElementById("pl-party").value]}, name);
+}
+
 function closePrintModal() {
     const modal = document.getElementById("print-modal");
     if (modal) modal.style.display = "none";
@@ -4426,6 +4510,7 @@ const COMMAND_REGISTRY = [
     { title: "Godowns & Storage Locations", category: "Inventory", shortcut: "", action: () => openMasters("godowns") },
     { title: "Units of Measure (UOM)", category: "Inventory", shortcut: "", action: () => openMasters("units") },
     { title: "Banking & Bank Reconciliation (BRS)", category: "Banking", shortcut: "B", action: () => openReport("BankReconciliation", "Banking & BRS") },
+    { title: "Price Lists", category: "Inventory", shortcut: "", action: () => openPriceLists() },
     { title: "GSTR-1 Outward Return", category: "Statutory", shortcut: "R", action: () => openReport("GSTR1", "GSTR-1 Outward Return") },
     { title: "GSTR-3B Monthly Return", category: "Statutory", shortcut: "3", action: () => openReport("GSTR3B", "GSTR-3B Monthly Return") },
     { title: "GSTR-9 Annual Return", category: "Statutory", shortcut: "9", action: () => openReport("GSTR9", "GSTR-9 Annual Return") },
@@ -4549,7 +4634,7 @@ function openInvoiceMode(type) {
     invoiceFill(document.getElementById("inv-book"), state.ledgers.filter(l => bookGroups.test(l.group_name || "")).map(l => l.name));
     document.getElementById("inv-book-label").textContent = salesSide ? "Sales ledger" : "Purchase ledger";
     document.getElementById("inv-ref-label").firstChild.textContent = salesSide ? "Reference no. " : "Supplier invoice no. ";
-    ["inv-reference", "inv-order", "inv-pos", "inv-due", "inv-shipped", "inv-destination", "inv-vehicle", "inv-consignee", "inv-narration"].forEach(id => { document.getElementById(id).value = ""; });
+    ["inv-reference", "inv-order", "inv-pos", "inv-due", "inv-shipped", "inv-destination", "inv-vehicle", "inv-transporter", "inv-distance", "inv-consignee", "inv-narration"].forEach(id => { document.getElementById(id).value = ""; });
     document.getElementById("inv-gst").checked = false;
     document.getElementById("inv-round").checked = false;
     const isOrder = ORDER_VOUCHER_TYPES.includes(type);
@@ -4691,6 +4776,7 @@ function invoicePayload() {
             order_ref: get("inv-order") || undefined, shipped_by: get("inv-shipped") || undefined, destination: get("inv-destination") || undefined,
             vehicle_no: get("inv-vehicle") || undefined, consignee_name: get("inv-consignee") || undefined, narration: get("inv-narration"),
             price_list: get("inv-pricelist") || undefined,
+            transporter_id: get("inv-transporter") || undefined, distance_km: parseFloat(get("inv-distance")) || undefined,
             tcs: get("inv-tcs-ledger") && parseFloat(get("inv-tcs-percent")) > 0 ? {ledger_name: get("inv-tcs-ledger"), percent: parseFloat(get("inv-tcs-percent"))} : undefined,
             tds: get("inv-tds-ledger") && parseFloat(get("inv-tds-percent")) > 0 ? {ledger_name: get("inv-tds-ledger"), percent: parseFloat(get("inv-tds-percent"))} : undefined};
 }
@@ -4738,7 +4824,13 @@ async function invoiceSave() {
         const res = await fetch("/api/invoices/save", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload)});
         const out = await res.json();
         if (!res.ok) { alert(`Voucher Error: ${out.error}`); return; }
-        alert(`\u2713 Invoice ${out.voucher_number} accepted (voucher ${out.voucher_id}). Total \u20B9${printMoney(out.total)}.`);
+        let extra = "";
+        try {
+            const r = await (await fetch(`/api/invoices/readiness?voucher_id=${out.voucher_id}`)).json();
+            if (r.applicable && !r.einvoice.ready) extra = "\nE-invoice still needs: " + r.einvoice.missing.join("; ") + ".";
+            else if (r.applicable && !r.eway.ready) extra = "\nE-way bill still needs: " + r.eway.missing.join("; ") + ".";
+        } catch (err) { /* the check is only a hint */ }
+        alert(`\u2713 Invoice ${out.voucher_number} accepted (voucher ${out.voucher_id}). Total \u20B9${printMoney(out.total)}.${extra}`);
         state.lastInvoiceId = out.voucher_id;
         await loadAppState();
         goBackToGateway();

@@ -398,6 +398,7 @@
                                     <li class="gateway-menu-item" data-action="Display" data-target="CreditNoteRegister"><span>Credit Note Register</span></li>
                                     <li class="gateway-menu-item" data-action="Display" data-target="DebitNoteRegister"><span>Debit Note Register</span></li>
                                     <li class="gateway-menu-item" data-action="Display" data-target="GSTSummary"><span>GST Summary (by rate)</span></li>
+                                    <li class="gateway-menu-item" onclick="openPriceLists()"><span>Price Lists</span></li>
                                     <li class="gateway-menu-item" data-action="Display" data-target="PurchaseOrders"><span>Purchase Orders (pending)</span></li>
                                     <li class="gateway-menu-item" data-action="Display" data-target="SalesOrders"><span>Sales Orders (pending)</span></li>
                                     <li class="gateway-menu-item" data-action="Display" data-target="StockSummary"><span>Stoc<span class="hotkey">k</span> Summary</span></li>
@@ -631,7 +632,9 @@
                             <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap:8px; margin-top:6px;">
                                 <label style="font-size:0.72rem; color:var(--text-muted);">Dispatched through <input id="inv-shipped" class="tally-input" style="width:100%;"></label>
                                 <label style="font-size:0.72rem; color:var(--text-muted);">Destination <input id="inv-destination" class="tally-input" style="width:100%;"></label>
-                                <label style="font-size:0.72rem; color:var(--text-muted);">Vehicle no. <input id="inv-vehicle" class="tally-input" style="width:100%;"></label>
+                                <label style="font-size:0.72rem; color:var(--text-muted);">Vehicle no. <input id="inv-vehicle" class="tally-input" style="width:100%;" placeholder="TN01AB1234"></label>
+                                <label style="font-size:0.72rem; color:var(--text-muted);">Transporter ID <input id="inv-transporter" class="tally-input" style="width:100%;"></label>
+                                <label style="font-size:0.72rem; color:var(--text-muted);">Distance (km) <input id="inv-distance" class="tally-input" style="width:100%;"></label>
                                 <label style="font-size:0.72rem; color:var(--text-muted);">Consignee <input id="inv-consignee" class="tally-input" style="width:100%;"></label>
                             </div>
                         </details>
@@ -1145,6 +1148,41 @@
     </div>
 
     <!-- 10. PRINT PREVIEW MODAL (P: Print) -->
+    <div class="modal-overlay" id="pricelist-modal" onclick="if(event.target===this) closePriceLists()">
+        <div class="modal-dialog" style="width: 820px; max-height:90vh; display:flex; flex-direction:column;">
+            <div style="background:var(--surface-subtle); color:var(--text-primary); border-bottom:1px solid var(--border-color); padding:10px 16px; font-weight:700; display:flex; justify-content:space-between;">
+                <span>Price Lists</span>
+                <span style="cursor:pointer;" onclick="closePriceLists()">&#10005;</span>
+            </div>
+            <div style="padding:12px 16px; overflow:auto; display:flex; flex-direction:column; gap:10px; font-size:0.8rem;">
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <label>List <select id="pl-list" class="tally-input" onchange="priceListShow()"></select></label>
+                    <input id="pl-new-name" class="tally-input" placeholder="new list name">
+                    <button class="btn-tally-primary" onclick="priceListCreate()" style="font-size:0.75rem; padding:3px 10px;">Create list</button>
+                </div>
+                <table class="tally-table" style="width:100%; font-size:0.78rem;">
+                    <thead><tr><th>Item</th><th>Effective from</th><th>Qty from</th><th>Qty up to (excl.)</th><th>Rate</th><th>Disc %</th></tr></thead>
+                    <tbody id="pl-rates-body"></tbody>
+                </table>
+                <div style="display:grid; grid-template-columns: 2fr 1.2fr 0.8fr 0.9fr 0.8fr 0.6fr auto; gap:6px; align-items:end;">
+                    <select id="pl-item" class="tally-input"></select>
+                    <input id="pl-from" type="date" class="tally-input">
+                    <input id="pl-qty-from" class="tally-input" placeholder="0">
+                    <input id="pl-qty-to" class="tally-input" placeholder="no limit">
+                    <input id="pl-rate" class="tally-input" placeholder="rate">
+                    <input id="pl-disc" class="tally-input" placeholder="0">
+                    <button class="btn-tally-primary" onclick="priceListAddRate()" style="font-size:0.75rem; padding:3px 10px;">Set rate</button>
+                </div>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <label>Give this list to party <select id="pl-party" class="tally-input"></select></label>
+                    <button class="btn-tally-primary" onclick="priceListAssign()" style="font-size:0.75rem; padding:3px 10px;">Assign</button>
+                    <span id="pl-parties" style="color:var(--text-muted);"></span>
+                </div>
+                <div id="pl-message" style="color:var(--accent-danger); min-height:1.2em;"></div>
+            </div>
+        </div>
+    </div>
+
     <div class="modal-overlay" id="print-modal" onclick="if(event.target===this) closePrintModal()">
         <div class="modal-dialog" style="width: 760px; max-height:90vh; display:flex; flex-direction:column;">
             <div style="background:var(--surface-subtle); color:var(--text-primary); border-bottom:1px solid var(--border-color); padding:10px 16px; font-weight:700; display:flex; justify-content:space-between;">
