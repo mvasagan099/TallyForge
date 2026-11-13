@@ -7,7 +7,12 @@ import json
 from decimal import Decimal
 
 INVOICE_TYPES = ("Sales", "Purchase", "Credit Note", "Debit Note")
-INVOICE_TITLES = {"Sales": "TAX INVOICE", "Purchase": "PURCHASE INVOICE", "Credit Note": "CREDIT NOTE", "Debit Note": "DEBIT NOTE"}
+# orders, delivery / receipt notes and rejection notes are printed on the same layout without tax-invoice wording or totals in words
+NOTE_DOC_TYPES = ("Sales Order", "Purchase Order", "Delivery Note", "Receipt Note", "Rejections In", "Rejections Out")
+SUPPLIER_SIDE = ("Purchase", "Debit Note", "Purchase Order", "Receipt Note", "Rejections Out")
+INVOICE_TITLES = {"Sales": "TAX INVOICE", "Purchase": "PURCHASE INVOICE", "Credit Note": "CREDIT NOTE", "Debit Note": "DEBIT NOTE",
+                  "Sales Order": "SALES ORDER", "Purchase Order": "PURCHASE ORDER", "Delivery Note": "DELIVERY NOTE",
+                  "Receipt Note": "RECEIPT NOTE", "Rejections In": "REJECTION NOTE (IN)", "Rejections Out": "REJECTION NOTE (OUT)"}
 PARTY_GROUPS = ("Sundry Debtors", "Sundry Creditors")
 ITEM_LEDGER_GROUPS = ("Sales Accounts", "Purchase Accounts")
 
@@ -94,26 +99,34 @@ def build_print(db, voucher_id):
     company = db.get_company()
 
     is_invoice = voucher["voucher_type"] in INVOICE_TYPES and bool(voucher["inventory"])
+    is_note = voucher["voucher_type"] in NOTE_DOC_TYPES and bool(voucher["inventory"])
+    dues = {}
+    if is_note:
+        try:
+            dues = {r[0]: r[1] for r in conn.execute("SELECT stock_item_name, due_date FROM order_line WHERE voucher_id = ?", (voucher_id,)) if r[1]}
+        except Exception:
+            dues = {}
     stock = {r["name"]: dict(r) for r in conn.execute("SELECT name, hsn_code, uom_symbol FROM stock_item")}
     items = []
     for i, line in enumerate(voucher["inventory"], 1):
         info = stock.get(line["stock_item_name"], {})
         items.append({"no": i, "name": line["stock_item_name"], "hsn": info.get("hsn_code") or "",
                       "qty": line["qty"], "unit": info.get("uom_symbol") or "", "rate": line["rate"], "amount": line["amount"],
-                      "godown": line.get("godown_name") or ""})
+                      "godown": line.get("godown_name") or "", "due": dues.get(line["stock_item_name"], "")})
 
     # Tax / charge ledgers: everything that is neither the party nor the sales / purchase ledger carrying the items.
     charges = []
     for e in entries:
-        if e is party_entry or under(e["ledger_name"], PARTY_GROUPS) or (is_invoice and under(e["ledger_name"], ITEM_LEDGER_GROUPS)):
+        if e is party_entry or under(e["ledger_name"], PARTY_GROUPS) or ((is_invoice or is_note) and under(e["ledger_name"], ITEM_LEDGER_GROUPS)):
             continue
         charges.append({"name": e["ledger_name"], "amount": e["amount"], "type": e["entry_type"]})
 
     total = party_entry["amount"] if party_entry else voucher["total_amount"]
     seller_state = details.get("company_state") or company.get("state") or ""
     doc = {
-        "kind": "invoice" if is_invoice else "voucher",
-        "title": INVOICE_TITLES.get(voucher["voucher_type"], "TAX INVOICE") if is_invoice else voucher["voucher_type"].upper() + " VOUCHER",
+        "kind": "invoice" if is_invoice else ("note" if is_note else "voucher"),
+        "supplier_side": voucher["voucher_type"] in SUPPLIER_SIDE,
+        "title": INVOICE_TITLES.get(voucher["voucher_type"], "TAX INVOICE") if (is_invoice or is_note) else voucher["voucher_type"].upper() + " VOUCHER",
         "voucher_id": voucher_id, "voucher_type": voucher["voucher_type"], "number": voucher["voucher_number"], "date": voucher["date"],
         "cancelled": bool(voucher["is_cancelled"]), "optional": bool(voucher["is_optional"]),
         "company": {"name": company.get("name", ""), "gstin": details.get("company_gstin") or company.get("gstin") or "",

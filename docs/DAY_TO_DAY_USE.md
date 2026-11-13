@@ -42,6 +42,10 @@ TallyPrime running; both are on the same screen.
 | Enter a sales or purchase invoice | F8 / F9 (also Alt+F5/F6 for notes): choose the party and the sales or purchase ledger, add item lines (quantity, rate, discount %), add freight or other ledgers if needed, tick GST or round off, then Ctrl+A |
 | Enter a sales or purchase order | choose Sales Order or Purchase Order as the voucher type (or search "Order" with Ctrl+K): party, items with quantity, rate and a due date, then Ctrl+A |
 | Receive or deliver against an order | on the invoice, pick the order for each item line ("Against order"); the pending quantity falls |
+| Record goods sent or received before the bill | choose Delivery Note or Receipt Note; invoice it later with "Against order / note" on the Sales or Purchase invoice |
+| Record goods sent back | choose Rejection Note (In) for a customer return or Rejection Note (Out) for goods returned to a supplier, allocated to the note it reverses |
+| Collect TCS or deduct TDS | on the Sales or Purchase invoice pick the tax ledger and a percentage (TCS adds to the bill, TDS reduces it) |
+| Use a price list | create one through the price-list screen or API, give a party that list, and leave the rate blank on the invoice line |
 | See what is still pending | Gateway menu: Purchase Orders (pending), Sales Orders (pending) |
 | Save a voucher | Ctrl+A |
 | Open or alter a voucher | Click it in the Day Book or in a register |

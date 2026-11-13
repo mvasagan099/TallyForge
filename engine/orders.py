@@ -13,10 +13,15 @@ import datetime
 ORDER_TYPES = ("Sales Order", "Purchase Order")
 NOTE_TYPES = ("Delivery Note", "Receipt Note")
 TRACKED = ORDER_TYPES + NOTE_TYPES
+# goods sent back: a Rejections In (customer returns goods) is allocated to the delivery note it reverses, a Rejections Out (goods sent
+# back to the supplier) to the receipt note. It lowers what is still to be invoiced but, unlike an invoice, does not take the stock
+# over from the note: the rejection's own stock line is the reversal.
+REJECTION_TYPES = ("Rejections In", "Rejections Out")
 # the voucher types whose lines may be allocated to each kind of document: an order is fulfilled by a note or an invoice, and a
 # note (stock moved before the bill) is invoiced later by a sales / purchase invoice raised against it
 FULFILS = {"Sales Order": ("Sales", "Delivery Note"), "Purchase Order": ("Purchase", "Receipt Note"),
-           "Delivery Note": ("Sales",), "Receipt Note": ("Purchase",)}
+           "Delivery Note": ("Sales", "Rejections In"), "Receipt Note": ("Purchase", "Rejections Out")}
+_NOT_REJECTION = "av.voucher_type NOT IN ('Rejections In','Rejections Out')"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS order_line (
@@ -153,7 +158,7 @@ def sync_note(db, note_voucher_id):
             continue                                    # a note with the same item on several lines is left as it is
         taken = db.conn.execute(
             """SELECT COALESCE(SUM(a.qty), 0) FROM order_allocation a JOIN voucher av ON av.id = a.against_voucher_id
-               WHERE a.order_voucher_id = ? AND a.stock_item_name = ? AND av.is_cancelled = 0""", (note_voucher_id, item)).fetchone()[0]
+               WHERE a.order_voucher_id = ? AND a.stock_item_name = ? AND av.is_cancelled = 0 AND """ + _NOT_REJECTION, (note_voucher_id, item)).fetchone()[0]
         remaining = max(0.0, original - taken)
         db.conn.execute("UPDATE voucher_inventory SET qty = ?, amount = ? WHERE id = ?",
                         (remaining, round(amount * remaining / original, 2) if original else 0.0, lines[0][0]))
@@ -167,7 +172,7 @@ def reset_note_after_alter(db, note_voucher_id):
     for item, qty, amount in db.conn.execute("SELECT stock_item_name, SUM(qty), SUM(amount) FROM voucher_inventory WHERE voucher_id = ? GROUP BY stock_item_name", (note_voucher_id,)).fetchall():
         taken = db.conn.execute(
             """SELECT COALESCE(SUM(a.qty), 0) FROM order_allocation a JOIN voucher av ON av.id = a.against_voucher_id
-               WHERE a.order_voucher_id = ? AND a.stock_item_name = ? AND av.is_cancelled = 0""", (note_voucher_id, item)).fetchone()[0]
+               WHERE a.order_voucher_id = ? AND a.stock_item_name = ? AND av.is_cancelled = 0 AND """ + _NOT_REJECTION, (note_voucher_id, item)).fetchone()[0]
         original = qty + taken
         db.conn.execute("INSERT INTO note_original(voucher_id, stock_item_name, qty, amount) VALUES(?,?,?,?)",
                         (note_voucher_id, item, original, round(amount * original / qty, 2) if qty else amount))

@@ -3230,7 +3230,7 @@ function renderVoucherPrintHtml(d) {
                   ["Place of Supply", d.place_of_supply], ["Dispatched through", d.shipped_by], ["Destination", d.destination],
                   ["Vehicle No.", d.vehicle_no]].filter(r => r[1]);
     const metaHtml = meta.map(r => `<div><strong>${printEsc(r[0])}:</strong> ${printEsc(r[1])}</div>`).join("");
-    const supplierSide = d.voucher_type === "Purchase" || d.voucher_type === "Debit Note";
+    const supplierSide = d.supplier_side !== undefined ? d.supplier_side : (d.voucher_type === "Purchase" || d.voucher_type === "Debit Note");
     const partyHtml = party.ledger ? `
         <div>
             <strong>${supplierSide ? "Supplier (Bill from)" : "Buyer (Bill to)"}</strong><br>
@@ -3265,6 +3265,21 @@ function renderVoucherPrintHtml(d) {
             <tbody>${rows}${charges}</tbody>
             <tfoot><tr style="font-weight:bold;"><td colspan="${cols + 1}" style="${cell} text-align:right;">Total</td>
                 <td style="${cell} text-align:right;">&#8377; ${printMoney(d.total)}</td></tr></tfoot></table>`;
+    } else if (d.kind === "note") {
+        const showDue = d.items.some(i => i.due);
+        const rows = d.items.map(i => `<tr>
+            <td style="${cell} text-align:center;">${i.no}</td>
+            <td style="${cell}"><strong>${printEsc(i.name)}</strong></td>
+            <td style="${cell} text-align:right;">${printEsc(i.qty)} ${printEsc(i.unit)}</td>
+            <td style="${cell} text-align:right;">${printMoney(i.rate)}</td>
+            ${showDue ? `<td style="${cell} text-align:center;">${printEsc(i.due)}</td>` : ""}
+            <td style="${cell} text-align:right;">${printMoney(i.amount)}</td></tr>`).join("");
+        body = `<table style="width:100%; border-collapse:collapse; font-size:0.8rem;">
+            <thead style="background:#eee;"><tr><th style="${cell}">Sl</th><th style="${cell}">Description of Goods</th><th style="${cell}">Quantity</th><th style="${cell}">Rate</th>
+                ${showDue ? `<th style="${cell}">Due on</th>` : ""}<th style="${cell}">Amount</th></tr></thead>
+            <tbody>${rows}</tbody>
+            <tfoot><tr style="font-weight:bold;"><td colspan="${showDue ? 5 : 4}" style="${cell} text-align:right;">Total</td>
+                <td style="${cell} text-align:right;">${printMoney(d.items_total)}</td></tr></tfoot></table>`;
     } else {
         const rows = d.entries.map(e => `<tr><td style="${cell}">${e.type === "Dr" ? "Dr" : "Cr"}</td><td style="${cell}"><strong>${printEsc(e.ledger)}</strong></td>
             <td style="${cell} text-align:right;">${e.type === "Dr" ? printMoney(e.amount) : ""}</td><td style="${cell} text-align:right;">${e.type === "Cr" ? printMoney(e.amount) : ""}</td></tr>`).join("");
@@ -3275,10 +3290,12 @@ function renderVoucherPrintHtml(d) {
     const bills = d.bills.length ? `<div style="margin-top:8px; font-size:0.8rem;"><strong>Bill references:</strong> ${d.bills.map(b => printEsc(b.name || b.type) + " (" + printEsc(b.type) + ", " + printMoney(b.amount) + ")").join("; ")}</div>` : "";
     const words = d.kind === "invoice" ? `<div style="margin-top:10px; font-size:0.85rem;"><strong>Amount Chargeable (in words):</strong> ${printEsc(d.amount_in_words)}</div>` : "";
     const narration = d.narration ? `<div style="margin-top:8px; font-size:0.8rem;"><strong>Narration:</strong> ${printEsc(d.narration)}</div>` : "";
-    const foot = d.kind === "invoice" ? `<div style="margin-top:24px; display:flex; justify-content:space-between; font-size:0.75rem;">
+    const noteFoot = d.kind === "note" ? `<div style="margin-top:24px; display:flex; justify-content:space-between; font-size:0.75rem;">
+        <div>Receiver's signature</div><div style="text-align:right;">for ${printEsc(co.name)}<br><br><br>Authorised Signatory</div></div>` : "";
+    const foot = noteFoot || (d.kind === "invoice" ? `<div style="margin-top:24px; display:flex; justify-content:space-between; font-size:0.75rem;">
         <div>Declaration: We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.</div>
         <div style="text-align:right;">for ${printEsc(co.name)}<br><br><br>Authorised Signatory</div></div>
-        <div style="text-align:center; margin-top:10px; font-size:0.7rem;">This is a Computer Generated Invoice</div>` : "";
+        <div style="text-align:center; margin-top:10px; font-size:0.7rem;">This is a Computer Generated Invoice</div>` : "");
     return head + top + body + words + bills + narration + foot;
 }
 
@@ -4504,15 +4521,17 @@ function handleCommandPaletteKey(e) {
 // ---------------------------------------------------------------------------------------------------------------
 const ORDER_VOUCHER_TYPES = ["Sales Order", "Purchase Order"];
 const NOTE_VOUCHER_TYPES = ["Delivery Note", "Receipt Note"];
-const NON_POSTING_TYPES = [...ORDER_VOUCHER_TYPES, ...NOTE_VOUCHER_TYPES];
+const REJECTION_VOUCHER_TYPES = ["Rejections In", "Rejections Out"];
+const NON_POSTING_TYPES = [...ORDER_VOUCHER_TYPES, ...NOTE_VOUCHER_TYPES, ...REJECTION_VOUCHER_TYPES];
 const INVOICE_TYPES = ["Sales", "Purchase", "Credit Note", "Debit Note", ...NON_POSTING_TYPES];
 let invoiceTimer = null;
 
-function invoiceIsSalesSide(type) { return ["Sales", "Credit Note", "Sales Order", "Delivery Note"].includes(type); }
+function invoiceIsSalesSide(type) { return ["Sales", "Credit Note", "Sales Order", "Delivery Note", "Rejections In"].includes(type); }
 // What a voucher can be allocated to: an invoice to the party's orders and unbilled delivery / receipt notes, a note to its orders.
 function invoiceOrderTypesFor(type) {
     return {"Sales": ["Sales Order", "Delivery Note"], "Purchase": ["Purchase Order", "Receipt Note"],
-            "Delivery Note": ["Sales Order"], "Receipt Note": ["Purchase Order"]}[type] || [];
+            "Delivery Note": ["Sales Order"], "Receipt Note": ["Purchase Order"],
+            "Rejections In": ["Delivery Note"], "Rejections Out": ["Receipt Note"]}[type] || [];
 }
 
 function invoiceFill(select, names, keep) {
@@ -4539,6 +4558,13 @@ function openInvoiceMode(type) {
     document.getElementById("inv-th-extra").style.display = (isOrder || invoiceOrderTypesFor(type).length) ? "" : "none";
     document.getElementById("inv-ref-label").firstChild.textContent = isOrder ? "Order no. " : (salesSide ? "Reference no. " : "Supplier invoice no. ");
     ["inv-gst", "inv-round"].forEach(id => { document.getElementById(id).closest("label").style.display = nonPosting ? "none" : ""; });
+    document.getElementById("inv-statutory").style.display = nonPosting ? "none" : "grid";
+    const dutyLedgers = state.ledgers.filter(l => /Duties/.test(l.group_name || "")).map(l => l.name);
+    invoiceFill(document.getElementById("inv-tcs-ledger"), ["", ...dutyLedgers]);
+    invoiceFill(document.getElementById("inv-tds-ledger"), ["", ...dutyLedgers]);
+    document.getElementById("inv-tcs-percent").value = "";
+    document.getElementById("inv-tds-percent").value = "";
+    invoiceLoadPriceLists();
     document.getElementById("inv-charges-body").closest("table").style.display = nonPosting ? "none" : "";
     state.invoiceOrderLines = [];
     state.invoiceRows = [{item: "", godown: "", qty: "", rate: "", disc: ""}];
@@ -4550,6 +4576,16 @@ function openInvoiceMode(type) {
     if (toggle) toggle.style.display = "none";
     invoiceRender();
     invoicePartyChanged();
+}
+
+async function invoiceLoadPriceLists() {
+    state.priceLists = [];
+    try {
+        const res = await fetch("/api/price-lists");
+        if (res.ok) state.priceLists = await res.json();
+    } catch (err) { /* no price lists */ }
+    const select = document.getElementById("inv-pricelist");
+    select.innerHTML = '<option value="">(party list, if any)</option>' + state.priceLists.map(p => `<option value="${printEsc(p.name)}">${printEsc(p.name)}</option>`).join("");
 }
 
 function invoicePartyChanged() {
@@ -4653,7 +4689,10 @@ function invoicePayload() {
             sales_ledger: book, items, charges, gst: document.getElementById("inv-gst").checked, round_off: document.getElementById("inv-round").checked,
             place_of_supply: get("inv-pos") || undefined, due_date: get("inv-due") || undefined, reference_no: get("inv-reference") || undefined,
             order_ref: get("inv-order") || undefined, shipped_by: get("inv-shipped") || undefined, destination: get("inv-destination") || undefined,
-            vehicle_no: get("inv-vehicle") || undefined, consignee_name: get("inv-consignee") || undefined, narration: get("inv-narration")};
+            vehicle_no: get("inv-vehicle") || undefined, consignee_name: get("inv-consignee") || undefined, narration: get("inv-narration"),
+            price_list: get("inv-pricelist") || undefined,
+            tcs: get("inv-tcs-ledger") && parseFloat(get("inv-tcs-percent")) > 0 ? {ledger_name: get("inv-tcs-ledger"), percent: parseFloat(get("inv-tcs-percent"))} : undefined,
+            tds: get("inv-tds-ledger") && parseFloat(get("inv-tds-percent")) > 0 ? {ledger_name: get("inv-tds-ledger"), percent: parseFloat(get("inv-tds-percent"))} : undefined};
 }
 
 function invoiceRecalcSoon() { clearTimeout(invoiceTimer); invoiceTimer = setTimeout(invoiceRecalc, 300); }
@@ -4673,6 +4712,9 @@ async function invoiceRecalc() {
         state.invoiceRows.forEach((r, i) => {
             if (!r.item) { r.amount = undefined; return; }
             r.amount = out.items[n] ? out.items[n].amount : undefined;
+            const rateRow = document.querySelectorAll("#inv-items-body tr")[i];
+            const rateInput = rateRow && rateRow.querySelector('[data-f="rate"]');
+            if (rateInput) rateInput.placeholder = (!r.rate && out.items[n] && out.items[n].rate) ? String(out.items[n].rate) + " (price list)" : "";
             const td = document.querySelector(`[data-amount="${i}"]`);
             if (td && r.amount !== undefined) td.textContent = printMoney(r.amount);
             n++;
@@ -4681,6 +4723,7 @@ async function invoiceRecalc() {
         let html = line("Items", out.item_total);
         out.charges.forEach(c => { html += line(`${c.ledger_name} (${c.entry_type})`, c.amount); });
         out.tax_lines.forEach(t => { html += line(`${t.kind} ${t.rate}%`, t.amount); });
+        (out.statutory || []).forEach(t => { html += line(`${t.kind} - ${t.ledger_name}`, t.amount); });
         html += `<div style="display:flex; justify-content:space-between; font-size:1rem; margin-top:4px;"><span>Invoice total (${printEsc(out.voucher_number)})</span><strong>&#8377; ${printMoney(out.total)}</strong></div>`;
         totals.innerHTML = html;
     } catch (err) {
