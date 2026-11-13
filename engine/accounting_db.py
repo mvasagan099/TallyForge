@@ -2448,7 +2448,8 @@ class EnterpriseAccountingDB(ReliabilityMixin):
     DAY_BOOK_DEFAULT = 100
     DAY_BOOK_MAX = 5000
 
-    def get_day_book(self, from_date: Optional[str] = None, to_date: Optional[str] = None) -> Dict[str, Any]:
+    def get_day_book(self, from_date: Optional[str] = None, to_date: Optional[str] = None, voucher_type: Optional[str] = None,
+                     ledger: Optional[str] = None) -> Dict[str, Any]:
         """Day Book rows (newest first) in one query. Without a period only the latest 100 are listed; with one, every
         voucher in it up to 5,000 (it used to stop at 100 even for a chosen period). ``total`` is the full count."""
         where, params = "v.is_cancelled = 0", []
@@ -2458,6 +2459,12 @@ class EnterpriseAccountingDB(ReliabilityMixin):
         if to_date:
             where += " AND v.date <= ?"
             params.append(to_date)
+        if voucher_type:
+            where += " AND v.voucher_type = ?"
+            params.append(voucher_type)
+        if ledger:
+            where += " AND EXISTS (SELECT 1 FROM voucher_entry fe WHERE fe.voucher_id = v.id AND fe.ledger_name = ?)"
+            params.append(ledger)
         total = self.conn.execute(f"SELECT COUNT(*) FROM voucher v WHERE {where}", params).fetchone()[0]
         limit = self.DAY_BOOK_MAX if (from_date or to_date) else self.DAY_BOOK_DEFAULT
         rows = self.conn.execute(

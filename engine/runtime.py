@@ -713,6 +713,8 @@ class TDLRuntime:
                 {"name": "Credit", "display_value": money(cr), "width": 22, "align": "right"}]}
             if row["kind"] == "group":
                 line["drill"] = "group=" + urllib.parse.quote(row["name"])
+            else:
+                line["goto"] = {"report": "GeneralLedger", "ledger": row["name"]}        # a ledger opens its monthly summary
             lines.append(line)
         lines.append({"name": "Total", "fields": [
             {"name": "Particulars", "display_value": "Grand Total", "width": 56, "align": "left"},
@@ -1263,7 +1265,7 @@ class TDLRuntime:
                 cr_val = item["closing_balance"] if item["closing_balance_type"] == "Cr" else 0.0
                 tot_dr += dr_val
                 tot_cr += cr_val
-                lines.append({"name": "Row", "fields": [
+                lines.append({"name": "Row", "goto": {"report": "GeneralLedger", "ledger": item["name"]}, "fields": [
                     {"name": "Particulars", "display_value": item["name"], "width": 50, "align": "left"},
                     {"name": "Group", "display_value": item["group_name"], "width": 26, "align": "left"},
                     {"name": "Debit", "display_value": f"{dr_val:,.2f}" if dr_val > 0 else "-", "width": 14, "align": "right"},
@@ -1287,7 +1289,8 @@ class TDLRuntime:
                 lines.append({"name": "Row", "drill": "", "fields": [
                     {"name": "Particulars", "display_value": "◄ Back to all groups", "width": 50, "align": "left"}]})
             for row in summary["rows"]:
-                lines.append({"name": "Row", **({"drill": "group=" + urllib.parse.quote(row["name"])} if row["kind"] == "group" else {}), "fields": [
+                lines.append({"name": "Row", **({"drill": "group=" + urllib.parse.quote(row["name"])} if row["kind"] == "group"
+                                                 else {"goto": {"report": "GeneralLedger", "ledger": row["name"]}}), "fields": [
                     {"name": "Particulars", "display_value": row["name"], "group": row["name"] if row["kind"] == "group" else None, "width": 50, "align": "left"},
                     {"name": "Debit", "display_value": f"{row['debit']:,.2f}" if row["debit"] else "-", "width": 18, "align": "right"},
                     {"name": "Credit", "display_value": f"{row['credit']:,.2f}" if row["credit"] else "-", "width": 18, "align": "right"}]})
@@ -1936,7 +1939,8 @@ class TDLRuntime:
         # 25. Day Book (Default)
         from_date = kwargs.get("from_date")
         to_date = kwargs.get("to_date")
-        book = self.db.get_day_book(from_date=from_date, to_date=to_date)
+        book = self.db.get_day_book(from_date=from_date, to_date=to_date, voucher_type=kwargs.get("vtype") or None,
+                                    ledger=kwargs.get("ledger") or None)
         vouchers = book["vouchers"]
         lines = [
             {"name": "Header", "fields": [
@@ -1961,4 +1965,5 @@ class TDLRuntime:
         if book["total"] > len(vouchers):
             lines.append({"name": "Total", "fields": [
                 {"name": "More", "display_value": f"Showing {len(vouchers):,} of {book['total']:,} vouchers - choose a period to see the rest", "width": 100, "align": "left"}]})
-        return {"report": report_name, "title": "Day Book", "parts": [{"name": "DBPart", "lines": lines}], "company": company}
+        narrowed = [x for x in (kwargs.get("vtype"), kwargs.get("ledger")) if x]
+        return {"report": report_name, "title": "Day Book" + (f" ({', '.join(narrowed)})" if narrowed else ""), "parts": [{"name": "DBPart", "lines": lines}], "company": company}

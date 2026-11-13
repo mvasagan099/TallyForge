@@ -447,6 +447,10 @@ async function openReport(reportName, reportTitle, fromDate, toDate) {
     try {
         let url = `/api/report/${encodeURIComponent(reportName)}`;
         const params = [];
+        if (reportName.toLowerCase() === "daybook") {                      // Day Book narrowed by voucher type and / or ledger
+            if (state.dayBookType) params.push(`vtype=${encodeURIComponent(state.dayBookType)}`);
+            if (state.dayBookLedger) params.push(`ledger=${encodeURIComponent(state.dayBookLedger)}`);
+        }
         if (reportName.toLowerCase().includes("generalledger") && state.selectedLedgerName) {
             params.push(`ledger=${encodeURIComponent(state.selectedLedgerName)}`);
         }
@@ -510,7 +514,7 @@ function populateReportLedgerSelect() {
 
 function renderReportTable(reportData, reportName) {
     // a drill inside a ledger report (summary, month) has its own title
-    if (/ledger|cashbank/i.test(reportName || "") && reportData && reportData.title && document.getElementById("report-title")) {
+    if (/ledger|cashbank|daybook/i.test(reportName || "") && reportData && reportData.title && document.getElementById("report-title")) {
         document.getElementById("report-title").textContent = reportData.title;
     }
     const thead = document.getElementById("report-table-head");
@@ -537,6 +541,10 @@ function renderReportTable(reportData, reportName) {
                 tr.style.cursor = "pointer";
                 tr.title = line.drill ? "Click to drill down" : "Click to go back";
                 tr.onclick = () => openReportDrill(reportName, line.drill);
+            } else if (line.goto && !isHeader && !isTotal) {
+                tr.style.cursor = "pointer";
+                tr.title = "Click to open " + line.goto.ledger;
+                tr.onclick = () => { state.selectedLedgerName = line.goto.ledger; openReport(line.goto.report, "Ledger"); };
             } else if (line.bank_mark && !isHeader && !isTotal) {
                 tr.style.cursor = "pointer";
                 tr.title = "Click to record the date the bank cleared this entry";

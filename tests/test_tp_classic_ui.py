@@ -64,6 +64,14 @@ class ClassicShellTests(unittest.TestCase):
         self.assertNotIn('Customer ABC Pvt Ltd', main)
         self.assertIn('data-target="CashBankBooks"', self.html)
 
+    def test_reports_remember_where_you_came_from_and_ledger_rows_open_the_ledger(self):
+        for needle in ('reportBack', 'noteReport', 'syncDayBookFilter', 'tp-db-type'):
+            self.assertIn(needle, self.js)
+        self.assertIn('onclick="reportBack()"', self.html)
+        main = (STATIC / 'tally.js').read_text(encoding='utf-8')
+        self.assertIn('line.goto', main)
+        self.assertIn('state.dayBookType', main)
+
 
 if __name__ == '__main__':
     unittest.main()
