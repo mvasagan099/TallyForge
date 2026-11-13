@@ -332,6 +332,7 @@
         if (f) f.value = period.from || ""; if (t) t.value = period.to || "";
         refreshInfo();
         if (typeof state !== "undefined" && state.currentScreen === "report" && state.currentReportName) {
+            if (history.length) history.pop();                  // a new period replaces this view instead of adding a level to go back through
             const title = ($("report-title") && $("report-title").textContent) || state.currentReportName;
             window.openReport(state.currentReportName, title);
         }
@@ -419,6 +420,36 @@
     }
 
     // ------------------------------------------------------------------------------------------------ reports: row cursor, find, nil lines
+    // Esc / Back in a report returns to the report you came from (the Trial Balance after a ledger, a group after its ledger), as in
+    // TallyPrime; the history is cleared when you return to the Gateway
+    let history = [];
+    let replaying = false;
+    function noteReport(url) {
+        if (replaying) return;
+        const name = decodeURIComponent(url.split("?")[0].replace("/api/report/", ""));
+        if (history.length && history[history.length - 1].url === url) return;
+        history.push({url, name, title: ($("report-title") && $("report-title").textContent) || name});
+    }
+    async function reportBack() {
+        if (history.length > 1) {
+            history.pop();
+            const previous = history[history.length - 1];
+            replaying = true;
+            try {
+                const res = await fetch(previous.url);
+                const data = await res.json();
+                state.currentReportName = previous.name;
+                const ledger = /[?&]ledger=([^&]*)/.exec(previous.url);
+                if (/ledger|cashbank/i.test(previous.name)) state.selectedLedgerName = ledger ? decodeURIComponent(ledger[1]) : "";
+                if ($("report-title")) $("report-title").textContent = previous.title;
+                renderReportTable(data, previous.name);
+                updatePath();
+            } finally { replaying = false; }
+            return;
+        }
+        goBackToGateway();
+    }
+    window.reportBack = reportBack;
     let cursor = -1;
     let finding = "";
     const reportRows = () => [...document.querySelectorAll("#report-table-body tr")].filter(r => !r.classList.contains("total-row") && r.querySelector("td") && r.style.display !== "none");
@@ -445,6 +476,30 @@
         document.querySelectorAll("#report-table-body tr.tp-cursor").forEach(r => r.classList.remove("tp-cursor"));
         rows[cursor].classList.add("tp-cursor");
         rows[cursor].scrollIntoView({block: "nearest"});
+    }
+    // Day Book: narrow by voucher type and ledger
+    function syncDayBookFilter() {
+        const isDayBook = typeof state !== "undefined" && state.currentScreen === "report" && String(state.currentReportName || "").toLowerCase() === "daybook";
+        let bar = $("tp-daybook-filter");
+        if (!isDayBook) { if (bar) bar.style.display = "none"; return; }
+        if (!bar) {
+            const anchor = $("report-ledger-filter");
+            if (!anchor) return;
+            bar = document.createElement("div");
+            bar.id = "tp-daybook-filter"; bar.className = "tp-find";
+            const types = VOUCHER_TYPES.filter(v => !v.header).map(v => v.label);
+            bar.innerHTML = `<span>Voucher type</span><select id="tp-db-type" class="tally-input"><option value="">All</option>${types.map(t => `<option>${esc(t)}</option>`).join("")}</select>
+                <span>Ledger</span><select id="tp-db-ledger" class="tally-input" style="max-width:240px;"><option value="">All</option></select>`;
+            anchor.parentNode.insertBefore(bar, anchor);
+            const apply = () => { state.dayBookType = $("tp-db-type").value; state.dayBookLedger = $("tp-db-ledger").value; history.pop(); openReport("DayBook", "Day Book"); };
+            $("tp-db-type").onchange = apply; $("tp-db-ledger").onchange = apply;
+        }
+        const select = $("tp-db-ledger");
+        if (select.options.length <= 1 && state.ledgers && state.ledgers.length) {
+            select.insertAdjacentHTML("beforeend", state.ledgers.map(l => `<option>${esc(l.name)}</option>`).join(""));
+        }
+        $("tp-db-type").value = state.dayBookType || ""; select.value = state.dayBookLedger || "";
+        bar.style.display = "flex";
     }
     function openFindBar() {
         let bar = $("tp-find");
@@ -570,6 +625,7 @@
         }
 
         if (screen === "report" && !anyModal()) {
+            if (k === "Escape" && !typing && history.length > 1) return take(reportBack);
             if (combo === "Alt+F" || combo === "Ctrl+F") return take(openFindBar);
             if (!typing) {
                 if (k === "ArrowDown") return take(() => moveCursor(1));
@@ -614,6 +670,13 @@
                 return result;
             };
         }
+        const nativeFetch = window.fetch.bind(window);                   // remember the reports shown, for Esc / Back
+        window.fetch = function (input, init) {
+            const url = typeof input === "string" ? input : ((input && input.url) || "");
+            const promise = nativeFetch(input, init);
+            if (url.startsWith("/api/report/")) promise.then(r => { if (r.ok) noteReport(url); }).catch(() => {});
+            return promise;
+        };
         if (typeof window.openReportDrill === "function") {            // keep the chosen ledger when a row of a ledger report is opened
             const originalDrill = window.openReportDrill;
             window.openReportDrill = function (name, drill) {
@@ -652,6 +715,8 @@
             const original = window.goBackToGateway;
             window.goBackToGateway = function () {
                 document.body.classList.remove("tp-show-dashboard");
+                history = [];
+                if (typeof state !== "undefined") { state.dayBookType = ""; state.dayBookLedger = ""; }
                 const r = original.apply(this, arguments);
                 if (cfg.style === "classic") { const d = $("dashboard-screen"); if (d) d.style.display = "none"; }
                 sel = 0; render(); refreshInfo(); syncHome();
@@ -683,6 +748,7 @@
         const crumb = $("breadcrumb");
         if (crumb) new MutationObserver(() => { if (!writing) updatePath(); }).observe(crumb, {childList: true, characterData: true, subtree: true});
         const reportBody = $("report-table-body");
+        if (reportBody) new MutationObserver(syncDayBookFilter).observe(reportBody, {childList: true});
         if (reportBody) new MutationObserver(() => { if (!applying) { applying = true; applyReportOptions(); applying = false; } }).observe(reportBody, {childList: true});
         const name = $("side-company-name");
         if (name) new MutationObserver(refreshInfo).observe(name, {childList: true, characterData: true, subtree: true});

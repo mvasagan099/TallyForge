@@ -91,6 +91,26 @@ class AccountBookTests(unittest.TestCase):
         self.assertIn('Cash / Bank Books', rt.render_report('CashBankBooks')['title'])
         self.assertIn('Bank', text(rt.render_report('Cash/Bank Books')))
 
+    def test_trial_balance_and_group_summary_ledger_rows_open_the_ledger(self):
+        self.v('Receipt', '2026-04-10', [('Bank', 'Dr', 500), ('Buyer', 'Cr', 500)])
+        rt = TDLRuntime(TDLSymbolTable(), self.db)
+        for report, kwargs in (('TrialBalance', {'group': 'Bank Accounts'}), ('TrialBalance', {'view': 'ledgers'}), ('GroupSummary', {'group': 'Bank Accounts'})):
+            lines = rt.render_report(report, **kwargs)['parts'][0]['lines']
+            self.assertTrue(any(line.get('goto') == {'report': 'GeneralLedger', 'ledger': 'Bank'} for line in lines), (report, kwargs))
+        top = rt.render_report('TrialBalance')['parts'][0]['lines']
+        self.assertFalse(any('goto' in line for line in top))                                    # a group row drills to its own contents
+
+    def test_day_book_can_be_narrowed_by_voucher_type_and_ledger(self):
+        self.v('Receipt', '2026-04-10', [('Bank', 'Dr', 500), ('Buyer', 'Cr', 500)])
+        self.v('Payment', '2026-04-11', [('Rent', 'Dr', 40), ('Cash', 'Cr', 40)])
+        self.v('Payment', '2026-04-12', [('Rent', 'Dr', 60), ('Bank', 'Cr', 60)])
+        count = lambda **kw: self.db.get_day_book('2026-04-01', '2026-04-30', **kw)['total']
+        self.assertEqual((count(), count(voucher_type='Payment'), count(ledger='Bank'), count(voucher_type='Payment', ledger='Bank')), (3, 2, 2, 1))
+        rt = TDLRuntime(TDLSymbolTable(), self.db)
+        shown = rt.render_report('DayBook', from_date='2026-04-01', to_date='2026-04-30', vtype='Receipt')
+        self.assertEqual(len([line for line in shown['parts'][0]['lines'] if line.get('voucher_id')]), 1)
+        self.assertIn('Receipt', shown['title'])
+
 
 if __name__ == '__main__':
     unittest.main()

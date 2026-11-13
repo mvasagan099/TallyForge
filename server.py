@@ -297,6 +297,8 @@ class TallyRequestHandler(BaseHTTPRequestHandler):
                 kwargs["group"] = query["group"][0]
             if "month" in query:
                 kwargs["month"] = query["month"][0]
+            if "vtype" in query:
+                kwargs["vtype"] = query["vtype"][0]
             if "view" in query:
                 kwargs["view"] = query["view"][0]
             if "item" in query:
