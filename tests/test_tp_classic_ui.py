@@ -58,6 +58,12 @@ class ClassicShellTests(unittest.TestCase):
             self.assertIn(needle, self.js)
         self.assertIn('employees', (STATIC / 'masters_edit.js').read_text(encoding='utf-8'))
 
+    def test_ledger_reports_are_wired_into_the_menu_and_the_demo_ledger_default_is_gone(self):
+        self.assertIn('Cash / Bank Books', self.js)
+        main = (STATIC / 'tally.js').read_text(encoding='utf-8')
+        self.assertNotIn('Customer ABC Pvt Ltd', main)
+        self.assertIn('data-target="CashBankBooks"', self.html)
+
 
 if __name__ == '__main__':
     unittest.main()

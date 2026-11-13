@@ -23,6 +23,9 @@ from typing import Dict, List, Any, Optional
 from engine.tdl_parser import TDLSymbolTable, TDLDefinition
 from engine.accounting_db import EnterpriseAccountingDB
 
+from urllib.parse import quote
+
+
 class TDLRuntime:
     def __init__(self, symbol_table: TDLSymbolTable, db: EnterpriseAccountingDB):
         self.symbols = symbol_table
@@ -485,6 +488,69 @@ class TDLRuntime:
             "name": line_name,
             "fields": fields
         }
+
+    def _render_ledger(self, report_name, kwargs, company):
+        """Account books like TallyPrime's: the ledger list, a ledger's monthly summary, a month's vouchers, and the Cash / Bank Books."""
+        from engine import account_books as books
+        compact = report_name.lower().replace(" ", "").replace("/", "")
+        books_view = "cashbank" in compact
+        ledger = (kwargs.get("ledger") or "").strip()
+        if ledger in ("undefined", "null"):
+            ledger = ""
+        if ledger and not self.db.conn.execute("SELECT 1 FROM ledger WHERE name = ?", (ledger,)).fetchone():
+            ledger = ""
+        start, end = kwargs.get("from_date") or None, kwargs.get("to_date") or None
+        money = lambda v: f"{v:,.2f}" if v else "-"
+        bal = lambda v: f"{abs(v):,.2f} {'Dr' if v >= 0 else 'Cr'}" if v else "-"
+
+        def head(cols):
+            return {"name": "Header", "fields": [{"name": k, "display_value": label, "width": w, "align": "right" if right else "left"} for k, label, w, right in cols]}
+
+        def row(cols, cells, name="Row", **extra):
+            return {"name": name, **extra, "fields": [{"name": k, "display_value": cells.get(k, ""), "width": w, "align": "right" if right else "left"} for k, _l, w, right in cols]}
+
+        lines = []
+        if not ledger:
+            if books_view:
+                cols = [("Name", "Cash / Bank Ledger", 30, False), ("Open", "Opening Balance", 18, True), ("Dr", "Debit", 18, True), ("Cr", "Credit", 18, True), ("Close", "Closing Balance", 20, True)]
+                data = books.cash_bank_books(self.db, start, end)
+                lines.append(head(cols))
+                for r in data["ledgers"]:
+                    lines.append(row(cols, {"Name": r["ledger"], "Open": bal(r["opening"]), "Dr": money(r["debit"]), "Cr": money(r["credit"]), "Close": bal(r["closing"])}, drill=f"ledger={quote(r['ledger'])}"))
+                lines.append(row(cols, {"Name": f"{len(data['ledgers'])} ledgers, {data['from']} to {data['to']}"}, "Total"))
+                title = "Cash / Bank Books"
+            else:
+                cols = [("Name", "Ledger", 34, False), ("Group", "Under", 24, False), ("Close", "Closing Balance", 22, True)]
+                lines.append(head(cols))
+                items = books.ledger_list(self.db)
+                for r in items:
+                    lines.append(row(cols, {"Name": r["name"], "Group": r["group"], "Close": bal(r["closing"] if r["side"] == "Dr" else -r["closing"])}, drill=f"ledger={quote(r['name'])}"))
+                lines.append(row(cols, {"Name": f"{len(items)} ledgers: choose one for its monthly summary"}, "Total"))
+                title = "Ledger"
+            return {"report": report_name, "title": title, "parts": [{"name": "LedgerPart", "lines": lines}], "company": company}
+
+        month = (kwargs.get("month") or "").strip()
+        if month and len(month) == 7:
+            data = books.month_vouchers(self.db, ledger, month)
+            cols = [("Date", "Date", 12, False), ("Part", "Particulars", 34, False), ("Type", "Vch Type", 14, False), ("No", "Vch No.", 16, False), ("Dr", "Debit", 16, True), ("Cr", "Credit", 16, True)]
+            lines.append(head(cols))
+            lines.append(row(cols, {"Part": "◄ Back to the monthly summary"}, drill=f"ledger={quote(ledger)}"))
+            lines.append(row(cols, {"Part": "Opening Balance", "Dr": bal(data["opening"]) if data["opening"] >= 0 else "", "Cr": bal(data["opening"]) if data["opening"] < 0 else ""}))
+            for v in data["vouchers"]:
+                lines.append(row(cols, {"Date": v["date"], "Part": v["particulars"], "Type": v["voucher_type"], "No": v["voucher_number"], "Dr": money(v["debit"]), "Cr": money(v["credit"])}, voucher_id=v["voucher_id"]))
+            lines.append(row(cols, {"Part": f"Total for {data['label']}", "Dr": money(data["debit"]), "Cr": money(data["credit"])}, "Total"))
+            lines.append(row(cols, {"Part": "Closing Balance", "Dr": bal(data["closing"]) if data["closing"] >= 0 else "", "Cr": bal(data["closing"]) if data["closing"] < 0 else ""}, "Total"))
+            return {"report": report_name, "title": f"Ledger Vouchers: {ledger} ({data['label']})", "parts": [{"name": "LedgerPart", "lines": lines}], "company": company}
+
+        data = books.monthly_summary(self.db, ledger, start, end)
+        cols = [("Month", "Particulars", 30, False), ("Dr", "Debit", 18, True), ("Cr", "Credit", 18, True), ("Close", "Closing Balance", 22, True)]
+        lines.append(head(cols))
+        lines.append(row(cols, {"Month": "◄ Back to the ledger list"}, drill=""))
+        lines.append(row(cols, {"Month": "Opening Balance", "Close": bal(data["opening"])}))
+        for m in data["months"]:
+            lines.append(row(cols, {"Month": m["label"], "Dr": money(m["debit"]), "Cr": money(m["credit"]), "Close": bal(m["closing"])}, drill=f"ledger={quote(ledger)}&month={m['month']}"))
+        lines.append(row(cols, {"Month": f"Grand Total ({data['from']} to {data['to']})", "Dr": money(data["debit"]), "Cr": money(data["credit"]), "Close": bal(data["closing"])}, "Total"))
+        return {"report": report_name, "title": f"Ledger Monthly Summary: {ledger}", "parts": [{"name": "LedgerPart", "lines": lines}], "company": company}
 
     def _render_orders(self, report_name, kwargs, company):
         """Pending orders like TallyPrime's Purchase Orders / Sales Orders report: pending quantity, rate, value and due date per
@@ -1041,46 +1107,8 @@ class TDLRuntime:
             return {"report": report_name, "title": "Stock Summary", "parts": [{"name": "StockPart", "lines": lines}], "company": company}
 
         # 9. General Ledger / Account Statement
-        elif "generalledger" in name_lower or "ledgerstatement" in name_lower or "accountstatement" in name_lower:
-            ledger_name = kwargs.get("ledger") or "Customer ABC Pvt Ltd"
-            statement = self.db.get_general_ledger_statement(ledger_name)
-            lines = [
-                {"name": "Header", "fields": [
-                    {"name": "Date", "display_value": "Date", "width": 12, "align": "left"},
-                    {"name": "VchType", "display_value": "Voucher Type", "width": 16, "align": "left"},
-                    {"name": "VchNo", "display_value": "Vch No", "width": 16, "align": "left"},
-                    {"name": "Narration", "display_value": "Particulars / Narration", "width": 28, "align": "left"},
-                    {"name": "Debit", "display_value": "Debit (₹)", "width": 14, "align": "right"},
-                    {"name": "Credit", "display_value": "Credit (₹)", "width": 14, "align": "right"},
-                    {"name": "Balance", "display_value": "Balance (₹)", "width": 16, "align": "right"}
-                ]},
-                {"name": "OpeningRow", "fields": [
-                    {"name": "Date", "display_value": "1-Apr-2026", "width": 12, "align": "left"},
-                    {"name": "VchType", "display_value": "Opening Balance", "width": 16, "align": "left"},
-                    {"name": "VchNo", "display_value": "-", "width": 16, "align": "left"},
-                    {"name": "Narration", "display_value": "Brought Forward", "width": 28, "align": "left"},
-                    {"name": "Debit", "display_value": f"{statement['opening_balance']:,.2f}" if statement['opening_balance_type'] == 'Dr' else "-", "width": 14, "align": "right"},
-                    {"name": "Credit", "display_value": f"{statement['opening_balance']:,.2f}" if statement['opening_balance_type'] == 'Cr' else "-", "width": 14, "align": "right"},
-                    {"name": "Balance", "display_value": f"{statement['opening_balance']:,.2f} {statement['opening_balance_type']}", "width": 16, "align": "right"}
-                ]}
-            ]
-            for tx in statement["transactions"]:
-                lines.append({"name": "Row", "fields": [
-                    {"name": "Date", "display_value": tx["date"], "width": 12, "align": "left"},
-                    {"name": "VchType", "display_value": tx["voucher_type"], "width": 16, "align": "left"},
-                    {"name": "VchNo", "display_value": tx["voucher_number"], "width": 16, "align": "left"},
-                    {"name": "Narration", "display_value": tx["narration"][:26], "width": 28, "align": "left"},
-                    {"name": "Debit", "display_value": f"{tx['debit']:,.2f}" if tx['debit'] > 0 else "-", "width": 14, "align": "right"},
-                    {"name": "Credit", "display_value": f"{tx['credit']:,.2f}" if tx['credit'] > 0 else "-", "width": 14, "align": "right"},
-                    {"name": "Balance", "display_value": f"{tx['running_balance']:,.2f} {tx['running_balance_type']}", "width": 16, "align": "right"}
-                ]})
-            lines.append({"name": "Total", "fields": [
-                {"name": "Lbl", "display_value": f"CLOSING BALANCE for {ledger_name}", "width": 72, "align": "left"},
-                {"name": "Blank1", "display_value": "", "width": 14, "align": "right"},
-                {"name": "Blank2", "display_value": "", "width": 14, "align": "right"},
-                {"name": "CloseBal", "display_value": f"{statement['closing_balance']:,.2f} {statement['closing_balance_type']}", "width": 16, "align": "right"}
-            ]})
-            return {"report": report_name, "title": f"Ledger Monthly Statement: {ledger_name}", "parts": [{"name": "GLPart", "lines": lines}], "company": company}
+        elif "generalledger" in name_lower or "ledgerstatement" in name_lower or "accountstatement" in name_lower or "cashbankbooks" in name_lower.replace(" ", "").replace("/", ""):
+            return self._render_ledger(report_name, kwargs, company)
 
         # 10. Cash Flow Statement
         elif "cashflow" in name_lower:

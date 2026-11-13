@@ -36,7 +36,8 @@
         {label: "Trial Balance", run: run.report("TrialBalance", "Trial Balance")},
         {label: "Day Book", run: run.report("DayBook", "Day Book")},
         {label: "Account Books", title: "Account Books", sub: [
-            {label: "Ledger", run: run.report("GeneralLedger", "General Ledger Statement")},
+            {label: "Cash / Bank Books", run: run.report("CashBankBooks", "Cash / Bank Books")},
+            {label: "Ledger", run: (() => { const f = () => { if (typeof state !== "undefined") state.selectedLedgerName = ""; openReport("GeneralLedger", "Ledger"); }; f.__name = "GeneralLedger"; return f; })()},
             {label: "Group Summary", run: run.report("GroupSummary", "Group Summary")},
             {label: "Registers", title: "Registers", sub: REGISTERS},
             {label: "Cheque Register", run: run.report("ChequeRegister", "Cheque Register & Books")},
@@ -611,6 +612,16 @@
                 const result = original.call(this, type, standardOnly);
                 if (period.date && $("vch-date")) $("vch-date").value = period.date;      // the current date set with F2
                 return result;
+            };
+        }
+        if (typeof window.openReportDrill === "function") {            // keep the chosen ledger when a row of a ledger report is opened
+            const originalDrill = window.openReportDrill;
+            window.openReportDrill = function (name, drill) {
+                if (/ledger|cashbank/i.test(name || "") && typeof state !== "undefined") {
+                    const m = /(?:^|&)ledger=([^&]*)/.exec(drill || "");
+                    state.selectedLedgerName = m ? decodeURIComponent(m[1]) : "";
+                }
+                return originalDrill.apply(this, arguments);
             };
         }
         if (typeof window.openReport === "function") {
