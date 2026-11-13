@@ -22,6 +22,14 @@ def get_route(path, query, db, store):
         return 200, {'strict': strict, 'cash_bank': sorted(db._cash_bank_ledgers()) if strict else []}
     if path == '/api/search/companies':
         return 200, store.search(query.get('q', [''])[0], db)
+    if path == '/api/price-lists':
+        from engine import price_lists
+        return 200, price_lists.summary(db)
+    if path == '/api/price-lists/rate':
+        from engine import price_lists
+        found = price_lists.rate_for(db, query.get('price_list', [''])[0], query.get('item', [''])[0],
+                                     query.get('date', [''])[0] or datetime.date.today().isoformat(), float(query.get('qty', ['1'])[0] or 1))
+        return 200, {'price': found}
     if path == '/api/vouchers/print':
         from engine.invoice_print import build_print
         return 200, build_print(db, int(query['voucher_id'][0]))
@@ -94,6 +102,15 @@ def post_route(path, data, db, store, user, contexts=None):
             return 403, {'error': 'A viewer cannot enter vouchers'}
         from engine.invoice_entry import save_invoice
         return 201, save_invoice(db, data)
+    if path == '/api/price-lists':
+        if user.get('role') == 'Viewer':
+            return 403, {'error': 'A viewer cannot change price lists'}
+        from engine import price_lists
+        price_lists.create(db, data.get('name'))
+        count = price_lists.set_rates(db, data['name'], data.get('rates') or [])
+        for party in data.get('parties') or []:
+            price_lists.assign(db, party, data['name'])
+        return 201, {'name': data['name'], 'rates_set': count}
     if path == '/api/gst/suggest':
         from engine.gst_entry import suggest_gst
         return 200, suggest_gst(db, data.get('voucher_type', ''), data.get('party_ledger'), data.get('items'),

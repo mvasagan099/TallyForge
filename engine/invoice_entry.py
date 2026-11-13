@@ -12,16 +12,17 @@ import datetime
 import json
 from decimal import Decimal, ROUND_HALF_UP
 
-from engine import orders
+from engine import orders, price_lists
 from engine.gst_entry import suggest_gst
 
 CENT = Decimal("0.01")
 ORDER_TYPES = orders.ORDER_TYPES
 NOTE_TYPES = orders.NOTE_TYPES
-NON_POSTING = ORDER_TYPES + NOTE_TYPES            # orders and delivery / receipt notes post nothing
-SUPPORTED = ("Sales", "Purchase", "Credit Note", "Debit Note") + ORDER_TYPES + NOTE_TYPES
+REJECTION_TYPES = orders.REJECTION_TYPES
+NON_POSTING = ORDER_TYPES + NOTE_TYPES + REJECTION_TYPES   # orders, delivery / receipt notes and rejection notes post nothing
+SUPPORTED = ("Sales", "Purchase", "Credit Note", "Debit Note") + ORDER_TYPES + NOTE_TYPES + REJECTION_TYPES
 ITEM_SIDE = {"Sales": "Cr", "Debit Note": "Cr", "Sales Order": "Cr", "Purchase": "Dr", "Credit Note": "Dr", "Purchase Order": "Dr",
-             "Delivery Note": "Cr", "Receipt Note": "Dr"}
+             "Delivery Note": "Cr", "Receipt Note": "Dr", "Rejections In": "Dr", "Rejections Out": "Cr"}
 
 
 def _money(value):
@@ -58,9 +59,13 @@ def build_invoice(db, data):
     direction = "Out" if vtype in out_types else "In"
     is_order = vtype in ORDER_TYPES
     non_posting = vtype in NON_POSTING
-    if non_posting and (data.get("charges") or data.get("gst") or data.get("round_off")):
-        raise ValueError(f"A {vtype} has item lines only: no charges, GST or round off")
+    if non_posting and (data.get("charges") or data.get("gst") or data.get("round_off") or data.get("tcs") or data.get("tds")):
+        raise ValueError(f"A {vtype} has item lines only: no charges, GST, TCS, TDS or round off")
+    list_name = data.get("price_list") or price_lists.party_price_list(db, party)
+    if data.get("price_list") and not price_lists.exists(db, data["price_list"]):
+        raise ValueError(f"Price list '{data['price_list']}' does not exist")
 
+    warnings = []
     items, item_total = [], Decimal("0.00")
     for n, line in enumerate(raw_items, 1):
         name = line.get("stock_item_name")
@@ -70,8 +75,14 @@ def build_invoice(db, data):
         qty = _qty(line.get("qty", 0))
         if qty < 0:
             raise ValueError(f"Quantity of '{name}' cannot be negative")
-        rate = _money(line.get("rate", 0))
-        discount = Decimal(str(line.get("discount_percent", 0) or 0))
+        priced = None
+        if list_name and line.get("rate") in (None, "", 0, "0") and line.get("amount") in (None, ""):
+            priced = price_lists.rate_for(db, list_name, name, date, float(qty))
+            if priced is None:
+                warnings.append(f"'{name}' has no price in price list '{list_name}' on {date}")
+        rate = _money(priced["rate"] if priced else line.get("rate", 0))
+        given = line.get("discount_percent")
+        discount = Decimal(str(given if given not in (None, "") else (priced["discount_percent"] if priced else 0)))
         if not (Decimal("0") <= discount <= Decimal("100")):
             raise ValueError(f"Discount of '{name}' must be between 0 and 100 percent")
         gross = qty * rate
@@ -106,7 +117,7 @@ def build_invoice(db, data):
         charges.append({"ledger_name": c["ledger_name"], "entry_type": side, "amount": float(amount)})
         charge_total += amount if side == item_side else -amount
 
-    warnings, tax_lines, tax_total = [], [], Decimal("0.00")
+    tax_lines, tax_total = [], Decimal("0.00")
     gst = data.get("gst")
     if gst:
         suggestion = suggest_gst(db, vtype, party, [{"stock_item_name": i["stock_item_name"], "amount": i["amount"]} for i in items],
@@ -119,7 +130,35 @@ def build_invoice(db, data):
         tax_total = sum((_money(l["amount"]) for l in tax_lines), Decimal("0.00"))
         warnings.extend(w for w in suggestion["warnings"] if "state is not known" in w)
 
+    # TCS (collected by the seller on top of the bill) adds to the party's total, TDS (deducted by the buyer) reduces it. TCS is
+    # charged on the invoice value including GST, TDS on the value without it. A percentage is rounded to the whole rupee (the
+    # TallyPrime default; not checked against the real company, whose books use neither); an explicit amount is taken as typed.
+    statutory = []
+    for kind, spec in (("TCS", data.get("tcs")), ("TDS", data.get("tds"))):
+        if not spec:
+            continue
+        lname = spec.get("ledger_name")
+        row = db.conn.execute("SELECT group_name FROM ledger WHERE name = ?", (lname,)).fetchone()
+        if not row:
+            raise ValueError(f"{kind} ledger '{lname}' does not exist")
+        base = item_total + charge_total + (tax_total if kind == "TCS" else Decimal("0.00"))
+        if spec.get("amount") not in (None, ""):
+            amount = _money(spec["amount"])
+        elif spec.get("percent") not in (None, ""):
+            amount = (base * Decimal(str(spec["percent"])) / Decimal("100")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        else:
+            raise ValueError(f"Give the {kind} as a percent or an amount")
+        if amount <= 0:
+            continue
+        groups_s = {r["name"]: dict(r) for r in db.conn.execute("SELECT name, parent FROM account_group")}
+        if not db._under_group(groups_s, row[0], ("Duties & Taxes",)):
+            warnings.append(f"'{lname}' is not under Duties & Taxes")
+        side = item_side if kind == "TCS" else _flip(item_side)
+        statutory.append({"kind": kind, "ledger_name": lname, "entry_type": side, "amount": float(amount), "base": float(base)})
+
     total = item_total + charge_total + tax_total
+    for st in statutory:
+        total += _money(st["amount"]) if st["kind"] == "TCS" else -_money(st["amount"])
     round_off = Decimal("0.00")
     if data.get("round_off"):
         ledger = data.get("round_off_ledger") or next((r[0] for r in db.conn.execute("SELECT name FROM ledger") if "round" in r[0].lower()), None)
@@ -136,6 +175,7 @@ def build_invoice(db, data):
                {"ledger_name": book, "entry_type": item_side, "amount": float(item_total)}]
     entries += [{"ledger_name": c["ledger_name"], "entry_type": c["entry_type"], "amount": c["amount"]} for c in charges]
     entries += [{"ledger_name": t["ledger_name"], "entry_type": t["entry_type"], "amount": t["amount"]} for t in tax_lines]
+    entries += [{"ledger_name": t["ledger_name"], "entry_type": t["entry_type"], "amount": t["amount"]} for t in statutory]
 
     # Bill reference: a purchase is known by the supplier's invoice number, a sale by our voucher number; the due date is the
     # given one or the party's credit period counted from the invoice date.
@@ -163,7 +203,7 @@ def build_invoice(db, data):
                 lines[i["stock_item_name"]] = lines.get(i["stock_item_name"], 0.0) + i["qty"]
             allocations = orders.check_allocations(db, vtype, lines, wanted)
     return {"voucher_type": vtype, "date": date, "voucher_number": number, "allocations": allocations, "party_ledger": party, "book_ledger": book,
-            "items": items, "item_total": float(item_total), "charges": charges, "tax_lines": tax_lines, "total_tax": float(tax_total),
+            "items": items, "item_total": float(item_total), "charges": charges, "tax_lines": tax_lines, "statutory": statutory, "price_list": list_name or "", "total_tax": float(tax_total),
             "round_off": float(round_off), "total": float(total), "entries": entries, "bill_allocations": bills, "reference_no": data.get("reference_no") or "",
             "warnings": warnings}
 

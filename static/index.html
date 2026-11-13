@@ -568,6 +568,8 @@
                                 <option value="Purchase Order">Purchase Order</option>
                                 <option value="Delivery Note">Delivery Note</option>
                                 <option value="Receipt Note">Receipt Note</option>
+                                <option value="Rejections In">Rejection Note (In)</option>
+                                <option value="Rejections Out">Rejection Note (Out)</option>
                                 <option value="Stock Journal">Stock Journal</option>
                                 <option value="Physical Stock">Physical Stock</option>
                                 <option value="Manufacturing Journal">Manufacturing Journal</option>
@@ -601,6 +603,7 @@
                             <label style="font-size:0.72rem; color:var(--text-muted);">Order ref. <input id="inv-order" class="tally-input" style="width:100%;"></label>
                             <label style="font-size:0.72rem; color:var(--text-muted);">Place of supply <input id="inv-pos" class="tally-input" style="width:100%;" placeholder="state (blank = party's state)" onchange="invoiceRecalcSoon()"></label>
                             <label style="font-size:0.72rem; color:var(--text-muted);">Due date <input id="inv-due" type="date" class="tally-input" style="width:100%;"></label>
+                            <label style="font-size:0.72rem; color:var(--text-muted);">Price list <select id="inv-pricelist" class="tally-input" style="width:100%;" onchange="invoiceRecalcSoon()"><option value="">(party list, if any)</option></select></label>
                         </div>
                         <div id="inv-party-info" style="font-size:0.75rem; color:var(--text-muted);"></div>
                         <table class="tally-table" style="width:100%; font-size:0.8rem;">
@@ -616,6 +619,12 @@
                         <div style="display:flex; gap:18px; flex-wrap:wrap; font-size:0.8rem;">
                             <label><input type="checkbox" id="inv-gst" onchange="invoiceRecalcSoon()"> Add GST (CGST + SGST, or IGST by place of supply)</label>
                             <label><input type="checkbox" id="inv-round" onchange="invoiceRecalcSoon()"> Round off to the rupee</label>
+                        </div>
+                        <div id="inv-statutory" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap:8px;">
+                            <label style="font-size:0.72rem; color:var(--text-muted);">TCS ledger <select id="inv-tcs-ledger" class="tally-input" style="width:100%;" onchange="invoiceRecalcSoon()"></select></label>
+                            <label style="font-size:0.72rem; color:var(--text-muted);">TCS % (on value with GST) <input id="inv-tcs-percent" class="tally-input" style="width:100%;" oninput="invoiceRecalcSoon()"></label>
+                            <label style="font-size:0.72rem; color:var(--text-muted);">TDS ledger <select id="inv-tds-ledger" class="tally-input" style="width:100%;" onchange="invoiceRecalcSoon()"></select></label>
+                            <label style="font-size:0.72rem; color:var(--text-muted);">TDS % (on value without GST) <input id="inv-tds-percent" class="tally-input" style="width:100%;" oninput="invoiceRecalcSoon()"></label>
                         </div>
                         <details><summary style="font-size:0.78rem; cursor:pointer;">Dispatch and consignee details</summary>
                             <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap:8px; margin-top:6px;">
